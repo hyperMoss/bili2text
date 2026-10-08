@@ -6,7 +6,7 @@ from typing import Callable
 
 from b2t.database import AppDatabase
 from b2t.library import WorkspaceLibrary
-from b2t.models import TaskRecord
+from b2t.models import DownloadResult, TaskRecord
 from b2t.pipeline import B2TPipeline
 from b2t.progress import ProgressCallback, ProgressReporter
 
@@ -61,6 +61,25 @@ class TaskService:
             raise RuntimeError(f"task not found: {task_id}")
         return task
 
+    def run_transcription(
+        self,
+        *,
+        source: str,
+        provider: str,
+        model: str,
+        downloaded: DownloadResult | None = None,
+        prompt: str = "",
+        listener: ProgressCallback | None = None,
+    ) -> TaskRecord:
+        """Run one source in the caller thread so Ctrl+C can cancel it."""
+        task = self.database.create_task(kind="transcription", source_input=source, provider=provider, model=model)
+        if listener is not None:
+            self.add_listener(task.id, listener)
+        self._run_transcription(task.id, source, provider, model, prompt, downloaded)
+        completed = self.database.get_task(task.id)
+        assert completed is not None
+        return completed
+
     def add_listener(self, task_id: str, callback: ProgressCallback) -> None:
         with self._lock:
             self._listeners.setdefault(task_id, []).append(callback)
@@ -71,16 +90,21 @@ class TaskService:
     def list_tasks(self) -> list[TaskRecord]:
         return self.database.list_tasks()
 
-    def _run_transcription(self, task_id: str, source: str, provider: str, model: str, prompt: str) -> None:
+    def _run_transcription(self, task_id: str, source: str, provider: str, model: str, prompt: str, downloaded: DownloadResult | None = None) -> None:
         reporter = ProgressReporter(task_id, callback=self._handle_progress)
         try:
             reporter.running("preparing", message="preparing")
             pipeline = self.pipeline_factory(provider, model)
-            result = pipeline.transcribe(source, prompt=prompt or None, progress=reporter)
+            options = {"downloaded": downloaded} if downloaded is not None else {}
+            result = pipeline.transcribe(source, prompt=prompt or None, progress=reporter, **options)
             reporter.running("indexing", message="indexing", stage_progress=0.5)
             video_id = self.library.register_transcript_result(result)
             reporter.completed("completed")
             self.database.complete_task(task_id, video_id=video_id, message="completed")
+        except KeyboardInterrupt:
+            reporter.emit(status="cancelled", stage="cancelled", message="cancelled", percent=reporter.snapshot.percent)
+            self.database.cancel_task(task_id, message="interrupted; downloaded media preserved")
+            raise
         except Exception as exc:
             reporter.failed(str(exc))
             self.database.fail_task(task_id, error_message=str(exc))

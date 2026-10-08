@@ -12,6 +12,7 @@ ProgressCallback = Callable[[ProgressSnapshot], None]
 STAGE_RANGES: dict[str, tuple[float, float]] = {
     "queued": (0.0, 0.0),
     "preparing": (0.0, 0.05),
+    "checking_subtitles": (0.05, 0.1),
     "downloading": (0.05, 0.35),
     "extracting_audio": (0.35, 0.55),
     "transcribing": (0.55, 0.9),

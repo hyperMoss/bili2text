@@ -21,6 +21,11 @@ class Settings:
     config_path: Path
     app_db_path: Path
 
+    @property
+    def cookie_path(self) -> Path:
+        configured = os.getenv("B2T_COOKIE_FILE", "").strip()
+        return Path(configured).expanduser() if configured else self.workspace_root / "cookies.txt"
+
     @classmethod
     def from_workspace(cls, workspace: Path | None = None) -> "Settings":
         root = workspace or Path(os.getenv("B2T_HOME", DEFAULT_WORKSPACE_NAME)).expanduser()

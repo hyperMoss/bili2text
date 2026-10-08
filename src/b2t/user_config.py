@@ -8,6 +8,15 @@ from b2t.i18n import DEFAULT_LANGUAGE, normalize_language
 
 ALL_PROVIDERS = ("whisper", "sensevoice", "volcengine")
 ALL_FEATURES = ("web", "server", "window")
+DEFAULT_CHINESE_PROMPT = "以下是普通话的句子。"
+
+
+@dataclass(slots=True)
+class WhisperConfig:
+    audio_language: str = "zh"
+    device: str = "auto"
+    initial_prompt: str = DEFAULT_CHINESE_PROMPT
+    simplified: bool = True
 
 
 @dataclass(slots=True)
@@ -34,6 +43,7 @@ class AppConfig:
     enabled_features: list[str] = field(default_factory=lambda: ["window"])
     default_provider: str = "whisper"
     default_model: str = "small"
+    whisper: WhisperConfig = field(default_factory=WhisperConfig)
     sensevoice: SenseVoiceConfig = field(default_factory=SenseVoiceConfig)
     volcengine: VolcengineConfig = field(default_factory=VolcengineConfig)
 
@@ -54,6 +64,7 @@ class AppConfig:
             enabled_features=features,
             default_provider=data.get("default_provider", "whisper"),
             default_model=data.get("default_model", "small"),
+            whisper=WhisperConfig(**data.get("whisper", {})),
             sensevoice=SenseVoiceConfig(**data.get("sensevoice", {})),
             volcengine=VolcengineConfig(**data.get("volcengine", {})),
         )

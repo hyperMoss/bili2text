@@ -12,6 +12,8 @@ license = { text = "MIT" }
 authors = [{ name = "Lanbin" }]
 dependencies = [
   "InquirerPy>=0.3.4",
+  "opencc-python-reimplemented==0.1.7",
+  "qrcode>=8.0",
   "rich>=13.9.4",
   "tqdm>=4.67.3",
   "typer>=0.12.5",

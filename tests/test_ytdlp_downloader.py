@@ -35,7 +35,7 @@ def test_ytdlp_options_select_playlist_item_when_page_is_set(tmp_path) -> None:
 
     assert opts["noplaylist"] is False
     assert opts["playlist_items"] == "2"
-    assert opts["outtmpl"] == str(settings.downloads_dir / "%(id)s.%(playlist_index)02d.%(ext)s")
+    assert opts["outtmpl"] == str(settings.downloads_dir / "BV1xx411c7XD.p02.%(ext)s")
 
 
 def test_ytdlp_options_bypass_proxy_by_default(tmp_path, monkeypatch) -> None:

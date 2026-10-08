@@ -22,11 +22,13 @@ class WindowApp:
         pipeline_factory: Callable[[str, str, Path | None], B2TPipeline],
         default_provider: str = "whisper",
         default_model: str = "small",
+        default_prompt: str = "以下是普通话的句子。",
         default_workspace: Path | None = None,
         language: str = "zh-CN",
     ) -> None:
         self.pipeline_factory = pipeline_factory
         self.language = language
+        self.default_prompt = default_prompt
         self.event_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self.latest_result: TranscriptResult | None = None
         self.is_running = False
@@ -88,7 +90,7 @@ class WindowApp:
         ttk.Label(top, text=tr(self.language, "window_prompt")).grid(row=3, column=0, sticky="nw", pady=(10, 0))
         self.prompt_text = tk.Text(top, height=5, wrap="word")
         self.prompt_text.grid(row=3, column=1, columnspan=4, sticky="nsew", padx=(8, 0), pady=(10, 0))
-        self.prompt_text.insert("1.0", "以下是普通话的句子。")
+        self.prompt_text.insert("1.0", self.default_prompt)
 
         button_row = ttk.Frame(top)
         button_row.grid(row=4, column=0, columnspan=5, sticky="ew", pady=(12, 0))
@@ -274,6 +276,7 @@ def run_window(
     pipeline_factory: Callable[[str, str, Path | None], B2TPipeline],
     default_provider: str = "whisper",
     default_model: str = "small",
+    default_prompt: str = "以下是普通话的句子。",
     default_workspace: Path | None = None,
     language: str = "zh-CN",
 ) -> None:
@@ -281,6 +284,7 @@ def run_window(
         pipeline_factory=pipeline_factory,
         default_provider=default_provider,
         default_model=default_model,
+        default_prompt=default_prompt,
         default_workspace=default_workspace,
         language=language,
     )
@@ -288,6 +292,7 @@ def run_window(
 
 
 def _open_path(path: Path) -> None:
+    path = path.expanduser().resolve()
     if os.name == "nt":
         os.startfile(path)  # type: ignore[attr-defined]
         return

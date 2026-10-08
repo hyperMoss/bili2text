@@ -92,12 +92,134 @@ Or put one BV, URL, or local file path per line:
 uv run bili2text batch --file sources.txt
 ```
 
+### Download and Resume Videos
+
+Resume video downloads from historical tasks, deduplicated by BV and part:
+
+```bash
+uv run bili2text download --from-tasks
+uv run bili2text download --from-tasks --dry-run
+```
+
+Or supply inputs directly:
+
+```bash
+uv run bili2text download BV1kfDTBXEfu BV1xx411c7XD
+uv run bili2text download --file sources.txt --workspace .b2t
+```
+
+This command downloads videos without loading a transcription model. It skips readable
+MP4 files with both audio and video tracks, resumes `.part` files, and validates
+new downloads against their expected duration. Downloads run sequentially, with
+up to three attempts per video (`--attempts` adjusts this). Failed downloads do not
+stop the remaining videos; the command exits with a nonzero status if any fail.
+Ctrl+C preserves partial files; run the same command again to resume.
+Output defaults to `.b2t/downloads/`. The alias is `dl`.
+
+If you installed a temporary yt-dlp patch inside `.venv`, use
+`uv run --no-sync bili2text download --from-tasks` to keep the current environment.
+Recreating the environment replaces such patches.
+
+### Subtitles First, ASR When Unavailable
+
+Bilibili inputs in `tx`, `batch`, and `download --transcribe` first check platform
+subtitles. Accessible captions are saved as readable `.txt` and timestamped `.srt`
+files without downloading video, extracting audio, or initializing an ASR model.
+Chinese captions are preferred, including automatic captions; danmaku is excluded.
+Only a confirmed absence of captions falls back to downloading and ASR.
+Login-required captions, network errors, and invalid subtitle data stop that task
+without downloading video. Configure cookies or restore connectivity, then rerun.
+Login-only captions need cookies via `B2T_COOKIE_FILE` or workspace `cookies.txt`.
+
+```bash
+uv run --no-sync bili2text download --from-tasks --transcribe
+uv run --no-sync bili2text download --from-tasks --transcribe --provider whisper --model small
+uv run --no-sync bili2text download --from-tasks --transcribe --audio-language zh
+uv run --no-sync bili2text download --from-tasks --transcribe --dry-run
+```
+
+When a video has no subtitles, complete videos are reused locally. Each successful
+download is transcribed before the next video, reusing one lazily initialized model.
+Saved platform subtitle transcripts are skipped regardless of the ASR model.
+ASR transcripts are skipped when their engine and model match.
+Failed videos do not block the remaining inputs.
+Ctrl+C preserves downloaded media and cancels the current task. Running again
+skips completed transcripts; interrupted transcription restarts from the beginning.
+Transcripts are saved in `.b2t/transcripts/original/`, with metadata in `.b2t/metadata/`.
+
+Whisper defaults to configured Chinese (`zh`) to avoid detection errors based on
+the first 30 seconds. `--audio-language` also works with `tx` and `batch`; pass
+`auto` to detect or `en` to select another language. Saved ASR transcripts must
+match the selected language to be skipped; platform subtitles ignore ASR language options.
+Progress shows processed audio time and total
+duration. Transcription occupies 55%–90% of overall progress.
+
+### Whisper line breaks
+
+Normal transcription now uses the Chinese style prompt, simplified conversion
+and line breaks by default. Settings are under `whisper` in `.b2t/config.json`:
+
+```json
+"whisper": {
+  "audio_language": "zh",
+  "device": "auto",
+  "initial_prompt": "以下是普通话的句子。",
+  "simplified": true
+}
+```
+
+`auto` chooses CUDA when available, otherwise CPU. `tx`, `batch` and
+`download --transcribe` accept `--device cpu` or `--device mps` overrides;
+MPS requires explicit selection. `--prompt` overrides the configured prompt.
+Set `simplified` to false to retain the recognized script. Selecting a different
+language disables the default Chinese prompt. Restart running web/window
+processes after changing configuration.
+
+Whisper output uses one line per sentence when sentence-ending punctuation is
+available, joining sentences that span timing chunks. Without punctuation, it
+uses Whisper chunk boundaries; unfinished spans longer than 30 seconds also
+fall back to those boundaries. Metadata preserves each chunk's start, end and text.
+Use `--prompt "以下是普通话的句子。"` to encourage simplified Chinese and punctuation.
+
+Repair an old TXT using its saved timing or existing local audio:
+
+```bash
+uv run --no-sync python scripts/repair_transcripts.py "old-transcript.txt" --retranscribe
+```
+
+The script keeps originals and saves `.分段.txt` and `.分段.json` siblings. Missing
+timing requires `--retranscribe`; it reuses the audio recorded in metadata and
+does not download videos. The new recognition can differ from the old text.
+Existing outputs are never overwritten. Use `--device mps` to select Apple GPU
+or `--device cpu` for CPU; compare speed on your hardware.
+
+For deterministic simplified Chinese conversion, install
+`uv pip install --python .venv/bin/python -r scripts/requirements-transcript-repair.txt`
+and add `--simplified`. The recognized text and original timing remain in JSON.
+
 ## Commands
+
+Run `uv run --no-sync bili2text login` to display a QR code in the terminal.
+Scan and confirm with the Bilibili app. After checking the authenticated session,
+the command saves a Netscape cookie file to `.b2t/cookies.txt` with owner-only
+read/write permissions. Subtitles and downloads use this file automatically.
+`login --status` checks the saved session without generating a QR code.
+`--workspace` selects the workspace; `B2T_COOKIE_FILE` overrides the save/load path.
+The QR wait defaults to 180 seconds and can be shortened with `--timeout`.
+Cancellation and failed login leave the previous cookie file intact.
+Previously failed tasks must be resubmitted; new requests read the saved cookies.
+
+If an existing environment contains a temporary yt-dlp patch, install just the new
+QR dependency with `uv pip install --python .venv/bin/python 'qrcode>=8.0'` and keep
+using `uv run --no-sync`. Login does not require an ASR engine or start media jobs.
+Keep cookie files local; they contain login credentials.
 
 | Command | Alias | What it does |
 | --- | --- | --- |
 | `bili2text transcribe` | `tx` | Transcribe a video or audio file |
 | `bili2text batch` | - | Batch transcribe multiple inputs |
+| `bili2text download` | `dl` | Download, skip complete files, and resume partial files |
+| `bili2text login` | - | Scan to log into Bilibili; `--status` checks login |
 | `bili2text bootstrap` | `init` | Run the setup wizard |
 | `bili2text web` | `ui` | Start the web UI |
 | `bili2text server` | `srv` | Start server mode |

@@ -14,9 +14,15 @@ from b2t.transcribers.base import Transcriber
 class LocalWhisperTranscriber(Transcriber):
     name = "whisper"
 
-    def __init__(self, model: str = "small", device: str | None = None) -> None:
+    def __init__(self, model: str = "small", device: str | None = None, language: str | None = None,
+                 initial_prompt: str | None = None) -> None:
         self.model_name = model
-        self.device = device
+        selected_device = (device or "auto").strip().lower()
+        if selected_device not in {"auto", "cpu", "cuda", "mps"}:
+            raise ValueError("Whisper device must be auto, cpu, cuda or mps")
+        self.device = None if selected_device == "auto" else selected_device
+        self.language = language.strip().lower() if language and language.strip().lower() != "auto" else None
+        self.initial_prompt = initial_prompt
         self._model: Any | None = None
 
     def transcribe(
@@ -30,10 +36,12 @@ class LocalWhisperTranscriber(Transcriber):
         if progress is not None:
             progress.running("transcribing", message="transcribing", stage_progress=0.0)
         transcribe_options: dict[str, Any] = {
-            "initial_prompt": prompt or None,
+            "initial_prompt": prompt or self.initial_prompt or None,
             # `verbose=False` keeps Whisper text output quiet while still driving the internal tqdm loop.
             "verbose": False,
         }
+        if self.language is not None:
+            transcribe_options["language"] = self.language
         if self.device == "cpu":
             transcribe_options["fp16"] = False
         with whisper_progress(progress):
@@ -45,6 +53,7 @@ class LocalWhisperTranscriber(Transcriber):
             "language": result.get("language"),
             "device": self.device,
             "model": self.model_name,
+            "initial_prompt": transcribe_options["initial_prompt"],
         }
 
     def _ensure_model(self) -> Any:
@@ -122,6 +131,7 @@ class WhisperProgressTqdm:
             "transcribing",
             message="transcribing",
             stage_progress=min(1.0, self.n / self.total),
+            detail={"processed_seconds": self.n / 100, "total_seconds": self.total / 100},
         )
 
     def refresh(self) -> None:

@@ -236,6 +236,17 @@ class AppDatabase:
             row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         return None if row is None else self._task_from_row(row)
 
+    def cancel_task(self, task_id: str, *, message: str = "cancelled") -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE tasks SET status = 'cancelled', current_stage = 'cancelled',
+                    current_message = ?, finished_at = ?
+                WHERE id = ? AND status IN ('queued', 'running', 'cancelled')
+                """,
+                (message, utc_now(), task_id),
+            )
+
     def list_tasks(self, *, status: str | None = None, provider: str | None = None) -> list[TaskRecord]:
         clauses: list[str] = []
         params: list[object] = []

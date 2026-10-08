@@ -177,3 +177,8 @@ outputs/
 # Executable files
 *.exe
 .b2t/
+
+# Local macOS metadata and login credentials
+.DS_Store
+cookies.txt
+cookies.json

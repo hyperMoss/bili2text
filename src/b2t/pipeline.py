@@ -5,13 +5,15 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Callable
 
 from b2t.config import Settings
 from b2t.downloaders.base import Downloader
 from b2t.inputs import parse_source, safe_stem
-from b2t.models import DownloadResult, TranscriptResult
+from b2t.models import DownloadResult, SourceRef, SubtitleResult, TranscriptResult
 from b2t.progress import ProgressReporter
 from b2t.transcribers.base import Transcriber
+from b2t.transcript_segments import normalize_whisper_segments, text_with_segment_breaks, simplify_chinese
 
 
 class B2TPipeline:
@@ -20,11 +22,23 @@ class B2TPipeline:
         *,
         settings: Settings,
         downloader: Downloader,
-        transcriber: Transcriber,
+        transcriber: Transcriber | None = None,
+        transcriber_factory: Callable[[], Transcriber] | None = None,
+        simplify_whisper: bool = True,
     ) -> None:
         self.settings = settings
         self.downloader = downloader
-        self.transcriber = transcriber
+        self._transcriber = transcriber
+        self.transcriber_factory = transcriber_factory
+        self.simplify_whisper = simplify_whisper
+
+    @property
+    def transcriber(self) -> Transcriber:
+        if self._transcriber is None:
+            if self.transcriber_factory is None:
+                raise RuntimeError("no transcriber configured for the ASR fallback")
+            self._transcriber = self.transcriber_factory()
+        return self._transcriber
 
     def transcribe(
         self,
@@ -33,15 +47,20 @@ class B2TPipeline:
         prompt: str | None = None,
         output: Path | None = None,
         progress: ProgressReporter | None = None,
+        downloaded: DownloadResult | None = None,
     ) -> TranscriptResult:
         self.settings.ensure_directories()
         if progress is not None:
             progress.running("preparing", message="preparing")
         source = parse_source(source_input)
-        downloaded: DownloadResult | None = None
-
         if source.kind == "bilibili":
-            downloaded = self.downloader.download(source, self.settings, progress=progress)
+            if downloaded is not None and (downloaded.source.bv, downloaded.source.page or 1) != (source.bv, source.page or 1):
+                raise ValueError("downloaded video does not match the requested source")
+            subtitle = self.downloader.fetch_subtitle(source, self.settings, progress=progress)
+            if subtitle is not None:
+                return self._write_subtitle(source, subtitle, output=output, progress=progress)
+            if downloaded is None:
+                downloaded = self.downloader.download(source, self.settings, progress=progress)
             audio_path = self._extract_audio(
                 downloaded.video_path,
                 safe_stem(downloaded.title or source.display_name),
@@ -50,11 +69,15 @@ class B2TPipeline:
             base_name = downloaded.title or source.display_name
             video_path = downloaded.video_path
         elif source.kind == "video":
+            if downloaded is not None:
+                raise ValueError("a downloaded result can only be used with a Bilibili source")
             assert source.path is not None
             audio_path = self._extract_audio(source.path, safe_stem(source.display_name), progress=progress)
             base_name = source.display_name
             video_path = source.path
         else:
+            if downloaded is not None:
+                raise ValueError("a downloaded result can only be used with a Bilibili source")
             assert source.path is not None
             audio_path = source.path
             base_name = source.display_name
@@ -65,12 +88,13 @@ class B2TPipeline:
         if not text:
             raise RuntimeError("transcriber returned an empty transcript")
 
-        if progress is not None:
-            progress.running("writing_outputs", message="writing_outputs", indeterminate=True)
-        transcript_path = self._resolve_output_path(base_name, output)
-        metadata_path = self._resolve_metadata_path(transcript_path)
-        transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        transcript_path.write_text(text + "\n", encoding="utf-8")
+        segments = []
+        recognized_text = text
+        if self.transcriber.name == "whisper":
+            segments = normalize_whisper_segments(transcription.get("segments"))
+            text = text_with_segment_breaks(text, segments)
+            if self.simplify_whisper:
+                text = simplify_chinese(text)
 
         metadata = {
             "source": {
@@ -79,27 +103,61 @@ class B2TPipeline:
                 "bv": source.bv,
                 "url": source.url,
                 "path": str(source.path) if source.path else None,
+                "page": source.page,
             },
             "engine": self.transcriber.name,
             "model": transcription.get("model"),
             "audio_path": str(audio_path),
             "video_path": str(video_path) if video_path else None,
-            "download": downloaded.metadata if downloaded else None,
+            "download": downloaded.metadata if downloaded else {},
             "language": transcription.get("language"),
             "generated_at": datetime.now().isoformat(),
         }
-        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        if segments:
+            metadata["segments"] = segments
+        if self.transcriber.name == "whisper":
+            metadata.update(text=recognized_text, device=transcription.get("device"),
+                            initial_prompt=transcription.get("initial_prompt"),
+                            output_script="simplified" if self.simplify_whisper else "original",
+                            format="whisper-sentence-lines-with-timing-fallback")
+        return self._write_result(source, text, base_name, metadata, audio_path=audio_path,
+                                  video_path=video_path, output=output, progress=progress)
 
+    def _write_subtitle(
+        self, source: SourceRef, subtitle: SubtitleResult, *,
+        output: Path | None, progress: ProgressReporter | None,
+    ) -> TranscriptResult:
+        metadata = {
+            "source": {"raw_input": source.raw_input, "kind": source.kind, "bv": source.bv,
+                       "url": source.url, "path": None, "page": source.page},
+            "engine": "bilibili-subtitles", "model": "", "language": subtitle.language,
+            "audio_path": None, "video_path": None, "download": subtitle.metadata,
+            "generated_at": datetime.now().isoformat(),
+        }
+        result = self._write_result(source, subtitle.text, subtitle.title or source.display_name,
+                                    metadata, audio_path=None, video_path=None, output=output, progress=progress)
+        subtitle_path = result.transcript_path.with_suffix(".srt")
+        subtitle_path.write_text(subtitle.content, encoding="utf-8")
+        result.metadata["subtitle_path"] = str(subtitle_path)
+        result.metadata_path.write_text(json.dumps(result.metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        return result
+
+    def _write_result(
+        self, source: SourceRef, text: str, base_name: str, metadata: dict[str, Any], *,
+        audio_path: Path | None, video_path: Path | None, output: Path | None,
+        progress: ProgressReporter | None,
+    ) -> TranscriptResult:
+        if progress is not None:
+            progress.running("writing_outputs", message="writing_outputs", indeterminate=True)
+        transcript_path = self._resolve_output_path(base_name, output)
+        metadata_path = self._resolve_metadata_path(transcript_path)
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        transcript_path.write_text(text + "\n", encoding="utf-8")
+        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         return TranscriptResult(
-            source=source,
-            engine=self.transcriber.name,
-            model=str(transcription.get("model") or ""),
-            text=text,
-            audio_path=audio_path,
-            transcript_path=transcript_path,
-            metadata_path=metadata_path,
-            video_path=video_path,
-            metadata=metadata,
+            source=source, engine=metadata["engine"], model=str(metadata.get("model") or ""),
+            text=text, audio_path=audio_path, transcript_path=transcript_path,
+            metadata_path=metadata_path, video_path=video_path, metadata=metadata,
         )
 
     def _extract_audio(self, video_path: Path, stem: str, progress: ProgressReporter | None = None) -> Path:
@@ -183,7 +241,7 @@ class B2TPipeline:
 
     def _resolve_output_path(self, base_name: str, output: Path | None) -> Path:
         if output is None:
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             return self.settings.transcripts_original_dir / f"{safe_stem(base_name)}-{timestamp}.txt"
 
         output = output.expanduser()

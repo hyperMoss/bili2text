@@ -31,12 +31,21 @@ class DownloadResult:
 
 
 @dataclass(slots=True)
+class SubtitleResult:
+    text: str
+    content: str
+    language: str
+    title: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class TranscriptResult:
     source: SourceRef
     engine: str
     model: str
     text: str
-    audio_path: Path
+    audio_path: Path | None
     transcript_path: Path
     metadata_path: Path
     video_path: Path | None = None

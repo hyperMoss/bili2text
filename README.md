@@ -71,6 +71,46 @@ uv run bili2text init
 
 ### 转写视频
 
+默认先检查 B 站平台字幕：有可访问字幕时直接保存 `.txt` 文字稿和 `.srt` 时间轴字幕，
+不下载视频、不提取音频、不加载转写模型。优先使用中文字幕，自动字幕也可使用，弹幕不算字幕。
+仅在确认无字幕时下载视频并转写；字幕需要登录、网络失败或字幕解析失败时停止该条任务，不下载视频。
+本地文件仍直接转写。
+部分字幕需要登录，可通过 `B2T_COOKIE_FILE` 或工作目录中的 `cookies.txt` 提供登录 Cookie。
+
+### 扫码登录 B 站
+
+在终端运行，用哔哩哔哩 App 扫描二维码并在手机上确认：
+
+```bash
+uv run --no-sync bili2text login
+```
+
+登录后会验证登录状态，再将 Cookie 保存为 `.b2t/cookies.txt`，文件权限为仅当前用户可读写。
+字幕获取和视频下载会自动使用该文件，无需浏览器导出 Cookie。
+命令不需要安装转写引擎，也不会启动下载或转写任务。
+
+检查登录状态，或指定工作目录：
+
+```bash
+uv run --no-sync bili2text login --status
+uv run --no-sync bili2text login --workspace .b2t
+```
+
+设置 `B2T_COOKIE_FILE` 时，登录命令会保存到该变量指定的路径，与下载器读取路径一致。
+二维码最长等待 180 秒，可用 `--timeout` 缩短；过期后重新运行登录命令。
+取消登录、接口失败或登录验证不通过时不会覆盖旧 Cookie。
+已有 Web 服务和批次中失败的任务需要重新提交，之后的新请求会读取保存的 Cookie。
+
+如果当前环境尚未安装二维码依赖，又需要保留 `.venv` 中的 yt-dlp 临时补丁，可只安装二维码依赖：
+
+```bash
+uv pip install --python .venv/bin/python 'qrcode>=8.0'
+```
+
+Cookie 含登录凭据，请留在本机，不要提交或贴入日志。
+
+### 获取文字稿
+
 ```bash
 uv run bili2text tx "https://www.bilibili.com/video/BV1kfDTBXEfu"
 ```
@@ -99,12 +139,116 @@ uv run bili2text batch "BV1kfDTBXEfu" "https://www.bilibili.com/video/BV1xx411c7
 uv run bili2text batch --file sources.txt
 ```
 
+### 仅下载视频与断点续传
+
+从已有任务记录中补齐视频下载，自动按 BV 和分 P 去重：
+
+```bash
+uv run bili2text download --from-tasks
+```
+
+先预览哪些文件会跳过、哪些需要下载：
+
+```bash
+uv run bili2text download --from-tasks --dry-run
+```
+
+也可以指定视频或输入文件：
+
+```bash
+uv run bili2text download BV1kfDTBXEfu BV1xx411c7XD
+uv run bili2text download --file sources.txt --workspace .b2t
+```
+
+此命令只下载视频，不加载转写模型。完整且包含音视频轨道的 MP4 会跳过，
+未完成的 `.part` 文件会续传；下载后检查音视频轨道和时长。
+遇到连接中断会自动重试（每个视频默认最多 3 次，可用 `--attempts` 调整），
+单条失败后继续处理其他视频，结束时返回非零退出码。
+按 Ctrl+C 停止会保留部分文件，再次运行同一命令即可继续。
+产物位于工作目录的 `downloads/`，默认是 `.b2t/downloads/`。
+
+`download` 可缩写为 `dl`。如果本地对 `.venv` 中的 yt-dlp 安装过临时补丁，
+可以用 `uv run --no-sync bili2text download --from-tasks` 保持当前依赖环境；重建环境会覆盖此类补丁。
+
+### 优先字幕，没有字幕再下载转写
+
+从历史任务逐条获取字幕，确认无字幕时续传下载并转写：
+
+```bash
+uv run --no-sync bili2text download --from-tasks --transcribe
+```
+
+可指定模型或先预览清单：
+
+```bash
+uv run --no-sync bili2text download --from-tasks --transcribe --provider whisper --model small
+uv run --no-sync bili2text download --from-tasks --transcribe --audio-language zh
+uv run --no-sync bili2text download --from-tasks --transcribe --dry-run
+```
+
+该模式在下载前检查字幕。有字幕时只保存字幕和文字稿，完整视频和音频也无需处理。
+确认无字幕时复用本地完整视频或续传下载，然后转写；失败的条目不会阻塞后续视频。
+字幕接口要求登录或获取失败时会明确报错，保留任务记录，配置 Cookie 或恢复网络后可重跑。
+已有平台字幕稿会跳过；语音转写稿按同一引擎、同一模型判断是否跳过。
+转写逐条执行，同一批复用一个模型实例，仅在需要语音转写时初始化模型。
+Ctrl+C 会保留视频并将当前任务标记为取消；再次执行会跳过完成的文字稿，未完成的转写从头开始。
+文字稿位于 `.b2t/transcripts/original/`，元数据位于 `.b2t/metadata/`。
+
+Whisper 默认使用配置中的中文 `zh`，避免根据开头 30 秒误判语音语言。
+`--audio-language` 也支持 `tx` 和 `batch`；传入 `auto` 自动检测，或 `en` 等代码指定其他语言。
+指定语言后，语音转写稿需匹配该语言才会跳过；平台字幕稿不受语音模型和语言参数影响。
+转写进度会显示已处理音频时长与总时长；总进度 55% 是音频提取结束，
+识别语音占后面的 55%–90%，因此初期总百分比增长较慢。
+
+### Whisper 分段换行
+
+正常转写流程默认使用中文提示词、简体转换和分段换行，无需再运行修复脚本。
+当前配置保存在 `.b2t/config.json` 的 `whisper` 节点中：
+
+```json
+"whisper": {
+  "audio_language": "zh",
+  "device": "auto",
+  "initial_prompt": "以下是普通话的句子。",
+  "simplified": true
+}
+```
+
+`auto` 使用可用的 CUDA，否则使用 CPU。`tx`、`batch`、`download --transcribe`
+支持 `--device cpu`、`--device mps` 等临时覆盖；MPS 需显式选择。
+`--prompt` 覆盖默认提示词；`simplified: false` 可保留识别时的繁简体。
+设置其他语音语言时，默认中文提示词不会自动套用。
+修改配置后重启已运行的网页或窗口进程。
+
+Whisper 文字稿优先按句末标点一行一句，跨时间段的未完句会合并。
+无句末标点时按时间段换行；长达 30 秒仍未见句末的片段也按时间边界拆开。
+时间段不一定是完整的语义句子；元数据会保留每段的 `start`、`end` 和 `text`。
+中文转写可传入 `--prompt "以下是普通话的句子。"` 引导简体和标点风格。
+
+修复旧文字稿（保留原件，另存 `.分段.txt` 和包含时间轴的 `.分段.json`）：
+
+```bash
+uv run --no-sync python scripts/repair_transcripts.py "旧文字稿.txt" --retranscribe
+```
+
+脚本优先使用已保存的时间段。没有时间轴时，`--retranscribe` 使用元数据中记录的
+本地音频重新识别，不下载视频；默认中文、原任务模型及提示词“以下是普通话的句子。”。
+重新识别的文字可能与旧稿不同。去掉 `--retranscribe` 时缺少时间轴会直接报错。
+输出已存在时停止，避免覆盖结果。
+可添加 `--device mps` 显式使用 Apple GPU，或 `--device cpu` 使用 CPU。
+MPS 需要可用的 PyTorch Metal 后端；不同硬件和模型的速度应实际对比。
+提示词不能保证全篇都是简体。需要清除残余繁体时，先安装
+`uv pip install --python .venv/bin/python -r scripts/requirements-transcript-repair.txt`，
+再为修复脚本添加 `--simplified`；识别原文和时间轴仍保存在 JSON 中。
+
 ## 命令一览
 
 | 命令 | 缩写 | 说明 |
 | --- | --- | --- |
 | `bili2text transcribe` | `tx` | 转写视频或音频 |
 | `bili2text batch` | - | 批量转写多条输入 |
+| `bili2text download` | `dl` | 下载视频、跳过完整文件并断点续传 |
+| `bili2text login` | - | 扫码登录 B 站，`--status` 检查登录状态 |
 | `bili2text bootstrap` | `init` | 配置向导 |
 | `bili2text web` | `ui` | 启动 Web 界面 |
 | `bili2text server` | `srv` | 启动服务模式 |
