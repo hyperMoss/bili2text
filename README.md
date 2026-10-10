@@ -202,14 +202,14 @@ Whisper 默认使用配置中的中文 `zh`，避免根据开头 30 秒误判语
 
 ### Whisper 分段换行
 
-正常转写流程默认使用中文提示词、简体转换和分段换行，无需再运行修复脚本。
+正常转写流程默认使用中文提示词、简体转换和分段换行。
 当前配置保存在 `.b2t/config.json` 的 `whisper` 节点中：
 
 ```json
 "whisper": {
   "audio_language": "zh",
   "device": "auto",
-  "initial_prompt": "以下是普通话的句子。",
+  "initial_prompt": "以下是普通话的句子。 ignore noise, white space, musical background sounds, and transcribe the part that speaks.",
   "simplified": true
 }
 ```
@@ -223,23 +223,7 @@ Whisper 默认使用配置中的中文 `zh`，避免根据开头 30 秒误判语
 Whisper 文字稿优先按句末标点一行一句，跨时间段的未完句会合并。
 无句末标点时按时间段换行；长达 30 秒仍未见句末的片段也按时间边界拆开。
 时间段不一定是完整的语义句子；元数据会保留每段的 `start`、`end` 和 `text`。
-中文转写可传入 `--prompt "以下是普通话的句子。"` 引导简体和标点风格。
-
-修复旧文字稿（保留原件，另存 `.分段.txt` 和包含时间轴的 `.分段.json`）：
-
-```bash
-uv run --no-sync python scripts/repair_transcripts.py "旧文字稿.txt" --retranscribe
-```
-
-脚本优先使用已保存的时间段。没有时间轴时，`--retranscribe` 使用元数据中记录的
-本地音频重新识别，不下载视频；默认中文、原任务模型及提示词“以下是普通话的句子。”。
-重新识别的文字可能与旧稿不同。去掉 `--retranscribe` 时缺少时间轴会直接报错。
-输出已存在时停止，避免覆盖结果。
-可添加 `--device mps` 显式使用 Apple GPU，或 `--device cpu` 使用 CPU。
-MPS 需要可用的 PyTorch Metal 后端；不同硬件和模型的速度应实际对比。
-提示词不能保证全篇都是简体。需要清除残余繁体时，先安装
-`uv pip install --python .venv/bin/python -r scripts/requirements-transcript-repair.txt`，
-再为修复脚本添加 `--simplified`；识别原文和时间轴仍保存在 JSON 中。
+中文转写可传入 `--prompt "以下是普通话的句子。 ignore noise, white space, musical background sounds, and transcribe the part that speaks."` 引导简体和标点风格。
 
 ## 命令一览
 

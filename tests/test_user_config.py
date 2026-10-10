@@ -34,7 +34,10 @@ def test_old_config_gets_chinese_whisper_defaults(tmp_path):
     config = AppConfig.load(settings)
     assert config.whisper.audio_language == "zh"
     assert config.whisper.device == "auto"
-    assert config.whisper.initial_prompt == "以下是普通话的句子。"
+    assert config.whisper.initial_prompt == (
+        "以下是普通话的句子。 "
+        "ignore noise, white space, musical background sounds, and transcribe the part that speaks."
+    )
     assert config.whisper.simplified is True
     config.whisper.device = "mps"
     config.whisper.simplified = False

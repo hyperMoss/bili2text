@@ -163,7 +163,7 @@ and line breaks by default. Settings are under `whisper` in `.b2t/config.json`:
 "whisper": {
   "audio_language": "zh",
   "device": "auto",
-  "initial_prompt": "以下是普通话的句子。",
+  "initial_prompt": "以下是普通话的句子。 ignore noise, white space, musical background sounds, and transcribe the part that speaks.",
   "simplified": true
 }
 ```
@@ -179,23 +179,7 @@ Whisper output uses one line per sentence when sentence-ending punctuation is
 available, joining sentences that span timing chunks. Without punctuation, it
 uses Whisper chunk boundaries; unfinished spans longer than 30 seconds also
 fall back to those boundaries. Metadata preserves each chunk's start, end and text.
-Use `--prompt "以下是普通话的句子。"` to encourage simplified Chinese and punctuation.
-
-Repair an old TXT using its saved timing or existing local audio:
-
-```bash
-uv run --no-sync python scripts/repair_transcripts.py "old-transcript.txt" --retranscribe
-```
-
-The script keeps originals and saves `.分段.txt` and `.分段.json` siblings. Missing
-timing requires `--retranscribe`; it reuses the audio recorded in metadata and
-does not download videos. The new recognition can differ from the old text.
-Existing outputs are never overwritten. Use `--device mps` to select Apple GPU
-or `--device cpu` for CPU; compare speed on your hardware.
-
-For deterministic simplified Chinese conversion, install
-`uv pip install --python .venv/bin/python -r scripts/requirements-transcript-repair.txt`
-and add `--simplified`. The recognized text and original timing remain in JSON.
+Use `--prompt "以下是普通话的句子。 ignore noise, white space, musical background sounds, and transcribe the part that speaks."` to encourage simplified Chinese and punctuation.
 
 ## Commands
 

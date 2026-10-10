@@ -13,6 +13,7 @@ from b2t.i18n import tr
 from b2t.inputs import parse_source_list
 from b2t.models import TranscriptResult
 from b2t.pipeline import B2TPipeline
+from b2t.user_config import DEFAULT_CHINESE_PROMPT
 
 
 class WindowApp:
@@ -22,7 +23,7 @@ class WindowApp:
         pipeline_factory: Callable[[str, str, Path | None], B2TPipeline],
         default_provider: str = "whisper",
         default_model: str = "small",
-        default_prompt: str = "以下是普通话的句子。",
+        default_prompt: str = DEFAULT_CHINESE_PROMPT,
         default_workspace: Path | None = None,
         language: str = "zh-CN",
     ) -> None:
@@ -276,7 +277,7 @@ def run_window(
     pipeline_factory: Callable[[str, str, Path | None], B2TPipeline],
     default_provider: str = "whisper",
     default_model: str = "small",
-    default_prompt: str = "以下是普通话的句子。",
+    default_prompt: str = DEFAULT_CHINESE_PROMPT,
     default_workspace: Path | None = None,
     language: str = "zh-CN",
 ) -> None:

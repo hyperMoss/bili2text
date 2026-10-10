@@ -8,7 +8,10 @@ from b2t.i18n import DEFAULT_LANGUAGE, normalize_language
 
 ALL_PROVIDERS = ("whisper", "sensevoice", "volcengine")
 ALL_FEATURES = ("web", "server", "window")
-DEFAULT_CHINESE_PROMPT = "以下是普通话的句子。"
+DEFAULT_CHINESE_PROMPT = (
+    "以下是普通话的句子。 "
+    "ignore noise, white space, musical background sounds, and transcribe the part that speaks."
+)
 
 
 @dataclass(slots=True)

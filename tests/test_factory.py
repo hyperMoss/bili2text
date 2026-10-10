@@ -2,7 +2,7 @@ import pytest
 
 from b2t.config import Settings
 from b2t.factory import build_pipeline
-from b2t.user_config import AppConfig
+from b2t.user_config import AppConfig, DEFAULT_CHINESE_PROMPT
 
 
 def test_whisper_defaults_and_device_override_are_lazy(tmp_path, monkeypatch):
@@ -13,7 +13,7 @@ def test_whisper_defaults_and_device_override_are_lazy(tmp_path, monkeypatch):
     pipeline = build_pipeline(settings=Settings.from_workspace(tmp_path), config=config, device="mps")
     assert seen == []
     pipeline.transcriber
-    assert seen == [{"model": "small", "language": "zh", "device": "mps", "initial_prompt": "以下是普通话的句子。"}]
+    assert seen == [{"model": "small", "language": "zh", "device": "mps", "initial_prompt": DEFAULT_CHINESE_PROMPT}]
     assert pipeline.simplify_whisper is True
 
 
