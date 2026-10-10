@@ -164,8 +164,10 @@ def test_pipeline_saves_subtitles_without_building_transcriber_or_media(tmp_path
     result = build_pipeline(settings=settings, config=AppConfig()).transcribe("https://www.bilibili.com/video/BV1xx411c7XD?p=2")
     assert result.audio_path is None and result.video_path is None
     assert result.engine == "bilibili-subtitles"
-    assert result.transcript_path.with_suffix(".srt").read_text() == SRT
+    assert result.transcript_path.read_text() == "第一句\n第二句 & 内容\n"
+    assert not result.transcript_path.with_suffix(".srt").exists()
     metadata = json.loads(result.metadata_path.read_text())
+    assert "subtitle_path" not in metadata
     assert metadata["source"]["page"] == 2
     assert metadata["audio_path"] is None
     assert list(settings.audio_dir.iterdir()) == []

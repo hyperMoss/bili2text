@@ -123,8 +123,8 @@ Recreating the environment replaces such patches.
 ### Subtitles First, ASR When Unavailable
 
 Bilibili inputs in `tx`, `batch`, and `download --transcribe` first check platform
-subtitles. Accessible captions are saved as readable `.txt` and timestamped `.srt`
-files without downloading video, extracting audio, or initializing an ASR model.
+subtitles. Accessible captions are converted to readable `.txt` transcripts with
+task metadata, without saving SRT files, downloading video, extracting audio, or initializing an ASR model.
 Chinese captions are preferred, including automatic captions; danmaku is excluded.
 Only a confirmed absence of captions falls back to downloading and ASR.
 Login-required captions, network errors, and invalid subtitle data stop that task

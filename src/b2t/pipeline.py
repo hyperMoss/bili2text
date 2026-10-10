@@ -134,13 +134,8 @@ class B2TPipeline:
             "audio_path": None, "video_path": None, "download": subtitle.metadata,
             "generated_at": datetime.now().isoformat(),
         }
-        result = self._write_result(source, subtitle.text, subtitle.title or source.display_name,
+        return self._write_result(source, subtitle.text, subtitle.title or source.display_name,
                                     metadata, audio_path=None, video_path=None, output=output, progress=progress)
-        subtitle_path = result.transcript_path.with_suffix(".srt")
-        subtitle_path.write_text(subtitle.content, encoding="utf-8")
-        result.metadata["subtitle_path"] = str(subtitle_path)
-        result.metadata_path.write_text(json.dumps(result.metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-        return result
 
     def _write_result(
         self, source: SourceRef, text: str, base_name: str, metadata: dict[str, Any], *,
