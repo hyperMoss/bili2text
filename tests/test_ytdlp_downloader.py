@@ -124,3 +124,41 @@ def test_ytdlp_options_env_cookie_file_takes_priority(tmp_path, monkeypatch) -> 
     opts = YtDlpDownloader()._build_ydl_opts(source, settings)
 
     assert opts["cookiefile"] == str(env_cookie_file)
+
+
+def test_download_reports_progress_without_a_second_native_progress_bar(tmp_path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from b2t.progress import ProgressReporter
+
+    settings = Settings.from_workspace(tmp_path / ".b2t")
+    source = SourceRef(raw_input="BV1xx411c7XD", kind="bilibili", display_name="video", bv="BV1xx411c7XD")
+    output_path = settings.downloads_dir / "BV1xx411c7XD.mp4"
+    events = []
+
+    class Downloader:
+        def __init__(self, options):
+            self.options = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def extract_info(self, url, download):
+            assert self.options["noprogress"] is True
+            for hook in self.options["progress_hooks"]:
+                hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 100})
+                hook({"status": "finished"})
+            output_path.write_bytes(b"video")
+            return {"id": source.bv, "title": "video", "requested_downloads": [{"filepath": str(output_path)}]}
+
+        def sanitize_info(self, info):
+            return info
+
+    monkeypatch.setitem(sys.modules, "yt_dlp", SimpleNamespace(YoutubeDL=Downloader))
+    result = YtDlpDownloader().download(source, settings, progress=ProgressReporter("download", callback=events.append))
+    assert result.video_path == output_path
+    assert events[0].percent == 0.2
+    assert events[-1].message == "download_finished"

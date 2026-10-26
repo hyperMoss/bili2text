@@ -115,7 +115,6 @@ class YtDlpDownloader(Downloader):
                 elif status == "finished":
                     progress.running("downloading", message="download_finished", stage_progress=1.0)
             ydl_opts["progress_hooks"] = [progress_hook]
-            ydl_opts["noprogress"] = False
 
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(source.url or f"https://www.bilibili.com/video/{source.bv}", download=True)

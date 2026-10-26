@@ -20,6 +20,7 @@ class TaskService:
         self.library = library
         self.pipeline_factory = pipeline_factory
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="b2t-task")
+        self.whisper_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="b2t-whisper")
         self._listeners: dict[str, list[ProgressCallback]] = {}
         self._futures: dict[str, Future[object]] = {}
         self._lock = Lock()
@@ -46,10 +47,15 @@ class TaskService:
             self.add_listener(task.id, listener)
         reporter = ProgressReporter(task.id, callback=self._handle_progress)
         reporter.queued("queued")
-        future = self.executor.submit(self._run_transcription, task.id, source, provider, model, prompt)
+        executor = self.whisper_executor if provider.strip().lower() == "whisper" else self.executor
+        future = executor.submit(self._run_transcription, task.id, source, provider, model, prompt)
         with self._lock:
             self._futures[task.id] = future
         return task
+
+    def shutdown(self, *, wait: bool = True) -> None:
+        self.whisper_executor.shutdown(wait=wait)
+        self.executor.shutdown(wait=wait)
 
     def wait_for_task(self, task_id: str) -> TaskRecord:
         with self._lock:

@@ -92,6 +92,19 @@ Or put one BV, URL, or local file path per line:
 uv run bili2text batch --file sources.txt
 ```
 
+`batch` updates each input's progress in a fixed terminal row, including the stage,
+overall percentage, and processed audio duration. Stage changes do not append status
+lines. To watch an existing batch, open another terminal in the project directory.
+The monitor refreshes the same table in place and only reads task records; exiting
+the monitor leaves transcription running.
+
+```bash
+uv run --no-sync python scripts/watch_tasks.py --file sources.txt
+```
+
+With RTK, use `rtk proxy uv run` to retain live output; `rtk uv run` buffers output.
+Add `--once` to the monitor command for a single text snapshot without cursor controls.
+
 ### Download and Resume Videos
 
 Resume video downloads from historical tasks, deduplicated by BV and part:
@@ -168,9 +181,14 @@ and line breaks by default. Settings are under `whisper` in `.b2t/config.json`:
 }
 ```
 
-`auto` chooses CUDA when available, otherwise CPU. `tx`, `batch` and
-`download --transcribe` accept `--device cpu` or `--device mps` overrides;
-MPS requires explicit selection. `--prompt` overrides the configured prompt.
+`auto` chooses the first available device in this order: CUDA, Mac MPS, CPU.
+CPU and MPS use FP32. If PyTorch cannot load the model on MPS, automatic selection
+warns and falls back to CPU. `tx`, `batch` and `download --transcribe` accept
+`--device cpu` or `--device mps` overrides.
+Web and window Whisper tasks run one at a time to avoid competing for local compute;
+other providers can still run concurrently. Model loading has its own progress stage.
+Recognition events include the actual device, model, and processed audio duration.
+`--prompt` overrides the configured prompt.
 Set `simplified` to false to retain the recognized script. Selecting a different
 language disables the default Chinese prompt. Restart running web/window
 processes after changing configuration.

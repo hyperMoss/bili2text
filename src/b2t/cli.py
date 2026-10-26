@@ -133,6 +133,8 @@ def create_app(language: str = DEFAULT_LANGUAGE) -> typer.Typer:
     ) -> None:
         """Submit multiple transcription tasks from arguments or a newline-separated file."""
         selected_language = _detect_preferred_language(workspace)
+        service = None
+        renderers = []
         try:
             settings, config = _load_runtime(workspace=workspace, provider=provider, model=model)
             service = _build_task_service(
@@ -144,15 +146,19 @@ def create_app(language: str = DEFAULT_LANGUAGE) -> typer.Typer:
                 device=device,
             )
             source_values = _collect_batch_sources(sources or [], source_file)
-            tasks = [
-                service.submit_transcription(
+            tasks = []
+            for index, source in enumerate(source_values):
+                renderer = TqdmTaskRenderer(
+                    config.language, label=f"[{index + 1}/{len(source_values)}] {Path(source).name}", position=index,
+                )
+                renderers.append(renderer)
+                tasks.append(service.submit_transcription(
                     source=source,
                     provider=provider or config.default_provider,
                     model=model or config.default_model,
                     prompt=prompt,
-                )
-                for source in source_values
-            ]
+                    listener=renderer,
+                ))
             typer.echo(tr(config.language, "batch_submitted", count=len(tasks)))
             for task in tasks:
                 typer.echo(f"{task.id}\t{task.source_input}")
@@ -182,6 +188,11 @@ def create_app(language: str = DEFAULT_LANGUAGE) -> typer.Typer:
             message = tr(selected_language, "error_prefix", message=exc)
             typer.secho(message, err=True, fg=typer.colors.RED)
             raise typer.Exit(code=1) from exc
+        finally:
+            if service is not None:
+                service.shutdown()
+            for renderer in renderers:
+                renderer.close()
 
         if failed:
             raise typer.Exit(code=1)
@@ -474,7 +485,10 @@ def _run_server(*, host: str, port: int, provider: str | None, model: str | None
         default_model=model or config.default_model,
         language=config.language,
     )
-    uvicorn.run(app_instance, host=host, port=port)
+    try:
+        uvicorn.run(app_instance, host=host, port=port)
+    finally:
+        service.shutdown(wait=True)
 
 
 def _detect_preferred_language(workspace: Path | None = None) -> str:

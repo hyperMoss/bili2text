@@ -55,3 +55,39 @@ def test_task_service_runs_background_transcription_and_indexes_result(tmp_path:
     videos = database.list_videos()
     assert len(videos) == 1
     assert videos[0]["title"] == "Demo Task"
+
+
+def test_whisper_tasks_queue_without_blocking_other_providers(tmp_path: Path) -> None:
+    from threading import Event
+
+    first_started, release_first, cloud_started = (Event() for _ in range(3))
+    settings = Settings.from_workspace(tmp_path / ".b2t")
+    database = AppDatabase(settings)
+
+    class BlockingPipeline(FakePipeline):
+        def transcribe(self, source, **kwargs):
+            if source == "first":
+                first_started.set()
+                assert release_first.wait(5)
+            elif self.provider == "volcengine":
+                cloud_started.set()
+            return super().transcribe(source, **kwargs)
+
+    service = TaskService(
+        database=database,
+        library=WorkspaceLibrary(settings, database),
+        pipeline_factory=lambda provider, model: BlockingPipeline(settings, provider, model),
+    )
+    try:
+        first = service.submit_transcription(source="first", provider="whisper", model="small")
+        assert first_started.wait(5)
+        second = service.submit_transcription(source="second", provider="whisper", model="small")
+        cloud = service.submit_transcription(source="cloud", provider="volcengine", model="flash")
+        assert cloud_started.wait(5)
+        assert service.wait_for_task(cloud.id).status == "completed"
+        assert service.get_task(second.id).status == "queued"
+    finally:
+        release_first.set()
+        service.wait_for_task(first.id)
+        service.wait_for_task(second.id)
+        service.shutdown(wait=True)

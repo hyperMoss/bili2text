@@ -139,6 +139,16 @@ uv run bili2text batch "BV1kfDTBXEfu" "https://www.bilibili.com/video/BV1xx411c7
 uv run bili2text batch --file sources.txt
 ```
 
+`batch` 在固定行更新每个输入的进度，包含处理阶段、总百分比和已识别音频时长；切换阶段不会追加状态行。
+要查看已经运行的批次，在项目目录另开终端执行以下命令。监看在原位置刷新同一张表，只读取任务记录，退出不会停止转写。
+
+```bash
+uv run --no-sync python scripts/watch_tasks.py --file sources.txt
+```
+
+使用 RTK 时，以 `rtk proxy uv run` 开头保留实时输出；`rtk uv run` 会缓存输出。
+需要一次性文本快照时，在监看命令末尾加 `--once`，不输出光标控制字符。
+
 ### 仅下载视频与断点续传
 
 从已有任务记录中补齐视频下载，自动按 BV 和分 P 去重：
@@ -214,8 +224,11 @@ Whisper 默认使用配置中的中文 `zh`，避免根据开头 30 秒误判语
 }
 ```
 
-`auto` 使用可用的 CUDA，否则使用 CPU。`tx`、`batch`、`download --transcribe`
-支持 `--device cpu`、`--device mps` 等临时覆盖；MPS 需显式选择。
+`auto` 按 CUDA、Mac MPS、CPU 的顺序选择可用设备。CPU 和 MPS 使用 FP32；
+若当前 PyTorch 不支持将模型加载到 MPS，自动模式会发出警告并回退到 CPU。
+`tx`、`batch`、`download --transcribe` 支持 `--device cpu`、`--device mps` 等临时覆盖。
+网页和窗口中的 Whisper 任务依次执行，避免多个本地模型争用计算资源；其他引擎仍可并行。
+模型加载会单独显示阶段，识别进度事件包含实际设备、模型和已处理音频时长。
 `--prompt` 覆盖默认提示词；`simplified: false` 可保留识别时的繁简体。
 设置其他语音语言时，默认中文提示词不会自动套用。
 修改配置后重启已运行的网页或窗口进程。

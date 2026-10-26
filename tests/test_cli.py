@@ -192,3 +192,27 @@ def test_download_transcribe_interrupt_cancels_transcription_record(tmp_path, mo
     database = AppDatabase(settings)
     assert {t.kind: t.status for t in database.list_tasks()} == {"download": "completed", "transcription": "cancelled"}
     assert (settings.downloads_dir / "BV1xx411c7XD.mp4").exists()
+
+
+def test_batch_displays_per_source_audio_progress(tmp_path, monkeypatch):
+    from b2t.pipeline import B2TPipeline
+
+    class Transcriber:
+        name = "whisper"
+
+        def transcribe(self, path, *, progress, **kwargs):
+            progress.running("transcribing", message="transcribing", stage_progress=0.5,
+                             detail={"processed_seconds": 60, "total_seconds": 120})
+            return {"text": "batch transcript", "model": "small", "language": "zh"}
+
+    monkeypatch.setattr("b2t.cli.build_pipeline", lambda **kwargs: B2TPipeline(
+        settings=kwargs["settings"], downloader=None, transcriber=Transcriber(),
+    ))
+    sources = [tmp_path / "first.wav", tmp_path / "second.wav"]
+    for source in sources:
+        source.write_bytes(b"audio")
+    result = runner.invoke(app, ["batch", *map(str, sources), "--workspace", str(tmp_path / ".b2t")])
+    assert result.exit_code == 0, result.output
+    assert "01:00 / 02:00" in result.stderr
+    assert "[1/2] first.wav" in result.stderr
+    assert "[2/2] second.wav" in result.stderr

@@ -15,6 +15,7 @@ STAGE_RANGES: dict[str, tuple[float, float]] = {
     "checking_subtitles": (0.05, 0.1),
     "downloading": (0.05, 0.35),
     "extracting_audio": (0.35, 0.55),
+    "loading_model": (0.55, 0.55),
     "transcribing": (0.55, 0.9),
     "writing_outputs": (0.9, 0.96),
     "indexing": (0.96, 0.99),
