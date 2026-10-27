@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from b2t.fileio import atomic_write_text
 from b2t.config import Settings
 from b2t.downloaders.base import Downloader
 from b2t.inputs import parse_source, safe_stem
@@ -148,8 +149,16 @@ class B2TPipeline:
         transcript_path = self._resolve_output_path(base_name, output)
         metadata_path = self._resolve_metadata_path(transcript_path)
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        transcript_path.write_text(text + "\n", encoding="utf-8")
-        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Do not overwrite existing results, even when a custom --output is supplied.
+        from hashlib import sha256
+        saved_text = text + "\n"
+        metadata = {**metadata, "transcript_path": str(transcript_path),
+                    "text_sha256": sha256(saved_text.encode("utf-8")).hexdigest(),
+                    "char_count": len(saved_text)}
+        if transcript_path.exists() or metadata_path.exists():
+            raise FileExistsError(f"transcript or metadata already exists: {transcript_path}")
+        atomic_write_text(transcript_path, saved_text)
+        atomic_write_text(metadata_path, json.dumps(metadata, ensure_ascii=False, indent=2))
         return TranscriptResult(
             source=source, engine=metadata["engine"], model=str(metadata.get("model") or ""),
             text=text, audio_path=audio_path, transcript_path=transcript_path,

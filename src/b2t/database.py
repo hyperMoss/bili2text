@@ -26,6 +26,7 @@ class AppDatabase:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, check_same_thread=False)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys=ON")
         return connection
 
     def _init_schema(self) -> None:
@@ -346,8 +347,15 @@ class AppDatabase:
     ) -> int:
         now = utc_now()
         with self._connect() as conn:
-            row = conn.execute("SELECT id FROM videos WHERE metadata_path = ?", (metadata_path,)).fetchone()
+            row = conn.execute("SELECT * FROM videos WHERE metadata_path = ?", (metadata_path,)).fetchone()
             if row is not None:
+                from b2t.integrity import _normal_source
+                existing = _normal_source(row["source_kind"], row["source_input"], row["source_bv"])
+                incoming = _normal_source(source_kind, source_input, source_bv)
+                if existing is None or incoming is None or existing != incoming or (
+                    row["engine"], row["model"], row["language"]
+                ) != (engine, model, language):
+                    raise ValueError(f"metadata path collision: {metadata_path}")
                 return int(row["id"])
             cursor = conn.execute(
                 """
@@ -388,6 +396,10 @@ class AppDatabase:
     ) -> int:
         now = utc_now()
         with self._connect() as conn:
+            if conn.execute("SELECT 1 FROM videos WHERE id = ?", (video_id,)).fetchone() is None:
+                raise ValueError(f"video not found: {video_id}")
+            if conn.execute("SELECT id FROM transcript_versions WHERE video_id = ? AND kind = ? AND file_path = ?", (video_id, kind, file_path)).fetchone():
+                raise ValueError(f"transcript version already exists: {file_path}")
             if is_active:
                 conn.execute("UPDATE transcript_versions SET is_active = 0 WHERE video_id = ?", (video_id,))
             cursor = conn.execute(
@@ -409,8 +421,10 @@ class AppDatabase:
     def activate_transcript_version(self, video_id: int, version_id: int) -> None:
         now = utc_now()
         with self._connect() as conn:
+            if conn.execute("SELECT 1 FROM transcript_versions WHERE id = ? AND video_id = ?", (version_id, video_id)).fetchone() is None:
+                raise ValueError(f"transcript version {version_id} does not belong to video {video_id}")
             conn.execute("UPDATE transcript_versions SET is_active = 0 WHERE video_id = ?", (video_id,))
-            conn.execute("UPDATE transcript_versions SET is_active = 1, updated_at = ? WHERE id = ?", (now, version_id))
+            conn.execute("UPDATE transcript_versions SET is_active = 1, updated_at = ? WHERE id = ? AND video_id = ?", (now, version_id, video_id))
             conn.execute(
                 "UPDATE videos SET current_transcript_version_id = ?, updated_at = ? WHERE id = ?",
                 (version_id, now, video_id),

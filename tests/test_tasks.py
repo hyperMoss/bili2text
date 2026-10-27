@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 
 from b2t.config import Settings
 from b2t.database import AppDatabase
@@ -16,10 +17,10 @@ class FakePipeline:
     def transcribe(self, source: str, *, prompt: str | None = None, output: Path | None = None, progress=None) -> TranscriptResult:
         if progress is not None:
             progress.running("transcribing", message="transcribing", stage_progress=0.5)
-        transcript_path = self.settings.transcripts_original_dir / "demo-task.txt"
+        suffix = hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
+        transcript_path = self.settings.transcripts_original_dir / f"demo-task-{suffix}.txt"
         transcript_path.write_text("task text\n", encoding="utf-8")
-        metadata_path = self.settings.metadata_dir / "demo-task.json"
-        metadata_path.write_text("{}", encoding="utf-8")
+        metadata_path = self.settings.metadata_dir / f"demo-task-{suffix}.json"
         return TranscriptResult(
             source=SourceRef(raw_input=source, kind="bilibili", display_name="demo", url=source, bv="BV1xx411c7XD"),
             engine=self.provider,

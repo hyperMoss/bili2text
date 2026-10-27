@@ -5,6 +5,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from b2t.fileio import atomic_write_text
+from b2t.integrity import _metadata_source, _normal_source
 from b2t.config import Settings
 from b2t.database import AppDatabase
 from b2t.inputs import safe_stem
@@ -59,7 +61,7 @@ class WorkspaceLibrary:
         base_name = safe_stem(str(video["display_name"]) or f"video-{video_id}")
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         path = self.settings.transcripts_edited_dir / f"{base_name}-{video_id}-{timestamp}.txt"
-        path.write_text(text.rstrip() + "\n", encoding="utf-8")
+        atomic_write_text(path, text.rstrip() + "\n")
         return self.database.create_transcript_version(
             video_id=video_id,
             kind="edited",
@@ -106,7 +108,21 @@ class WorkspaceLibrary:
             if not transcript_path.exists():
                 continue
 
-            data = json.loads(metadata_path.read_text(encoding="utf-8"))
+            try:
+                data = json.loads(metadata_path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict) or _metadata_source(data) is None:
+                    continue
+                declared = data.get("transcript_path")
+                if declared and Path(str(declared)).resolve() != transcript_path.resolve():
+                    continue
+                if data.get("text_sha256") or data.get("char_count") is not None:
+                    text = transcript_path.read_text(encoding="utf-8")
+                    if data.get("text_sha256") and sha256_text(text) != data["text_sha256"]:
+                        continue
+                    if data.get("char_count") is not None and len(text) != data["char_count"]:
+                        continue
+            except (OSError, ValueError, UnicodeError):
+                continue
             source = data.get("source") or {}
             video_id = self.database.create_video(
                 source_kind=source.get("kind") or "audio",
@@ -137,18 +153,45 @@ class WorkspaceLibrary:
     def _ensure_original_transcript(self, result: TranscriptResult) -> Path:
         target = self.settings.transcripts_original_dir / result.transcript_path.name
         if result.transcript_path.resolve() != target.resolve():
-            target.write_text(result.transcript_path.read_text(encoding="utf-8"), encoding="utf-8")
+            incoming = result.transcript_path.read_text(encoding="utf-8")
+            if target.exists():
+                if target.read_text(encoding="utf-8") != incoming:
+                    raise FileExistsError(f"original transcript filename collision: {target}")
+            else:
+                atomic_write_text(target, incoming)
         return target
 
     def _ensure_metadata_file(self, result: TranscriptResult, transcript_path: Path) -> Path:
         target = self.settings.metadata_dir / f"{transcript_path.stem}.json"
         metadata = {
             **result.metadata,
+            "source": {**{"raw_input": result.source.raw_input, "kind": result.source.kind,
+                          "bv": result.source.bv, "url": result.source.url,
+                          "page": result.source.page,
+                          "path": str(result.source.path) if result.source.path else None},
+                       **(result.metadata.get("source") or {})},
             "engine": result.engine,
             "model": result.model,
             "audio_path": str(result.audio_path) if result.audio_path else None,
             "video_path": str(result.video_path) if result.video_path else None,
             "transcript_path": str(transcript_path),
         }
-        target.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        content = transcript_path.read_text(encoding="utf-8")
+        metadata["text_sha256"] = sha256_text(content)
+        metadata["char_count"] = len(content)
+        if target.exists():
+            try:
+                previous = json.loads(target.read_text(encoding="utf-8"))
+                if _metadata_source(previous) != _normal_source(
+                    result.source.kind, result.source.raw_input, result.source.bv,
+                    result.source.page, result.source.path,
+                ):
+                    raise ValueError(f"metadata source collision: {target}")
+                if any(previous.get(key) != metadata.get(key) for key in
+                       ("engine", "model", "transcript_path", "text_sha256")):
+                    raise ValueError(f"metadata differs from existing record: {target}")
+            except (OSError, ValueError, TypeError) as exc:
+                raise ValueError(f"cannot safely reuse metadata: {target}") from exc
+        else:
+            atomic_write_text(target, json.dumps(metadata, ensure_ascii=False, indent=2))
         return target

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from b2t.config import Settings
 from b2t.database import AppDatabase
+from b2t.integrity import verified_active_transcript
 from b2t.downloaders.base import Downloader
 from b2t.downloaders.ytdlp import YtDlpDownloader
 from b2t.inputs import parse_source
@@ -138,11 +139,8 @@ class DownloadBatchService(Downloader):
                 path = video.get("video_path")
                 if not path or Path(str(path)).resolve() != item.path.resolve():
                     continue
-            version = self.database.get_active_transcript_version(int(video["id"]))
-            if version is not None:
-                transcript = Path(version.file_path)
-                if transcript.is_file() and transcript.read_text(encoding="utf-8").strip():
-                    return True
+            if verified_active_transcript(self.database, video):
+                return True
         return False
 
     def run_one(self, item: DownloadPlanItem, *, progress: ProgressCallback | None = None) -> DownloadResult:

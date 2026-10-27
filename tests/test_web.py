@@ -23,7 +23,6 @@ class FakePipeline:
         transcript_path = self.settings.transcripts_original_dir / f"demo-{source_id}.txt"
         metadata_path = self.settings.metadata_dir / f"demo-{source_id}.json"
         transcript_path.write_text("demo text\n", encoding="utf-8")
-        metadata_path.write_text("{}", encoding="utf-8")
         if progress is not None:
             progress.running("transcribing", message="transcribing", stage_progress=1.0)
         return TranscriptResult(

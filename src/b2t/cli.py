@@ -17,6 +17,7 @@ from b2t.factory import build_pipeline
 from b2t.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, dependency_sync_guidance, resolve_language, tr
 from b2t.inputs import parse_source_list
 from b2t.library import WorkspaceLibrary
+from b2t.integrity import audit_workspace
 from b2t.tasks import TaskService
 from b2t.user_config import AppConfig
 
@@ -306,6 +307,15 @@ def create_app(language: str = DEFAULT_LANGUAGE) -> typer.Typer:
             typer.secho(tr(selected_language, "error_prefix", message=error), err=True, fg=typer.colors.RED)
             raise typer.Exit(code=1) from error
         if failed:
+            raise typer.Exit(code=1)
+
+    @app.command("audit")
+    def audit(workspace: Path | None = typer.Option(None, "--workspace")) -> None:
+        """Read-only workspace integrity report; never initializes the DB."""
+        import json
+        report = audit_workspace(Settings.from_workspace(workspace))
+        typer.echo(json.dumps(report, ensure_ascii=False, indent=2))
+        if report["issue_count"]:
             raise typer.Exit(code=1)
 
     @app.command("doctor", help=tr(language, "cmd_doctor_help"))

@@ -1,0 +1,19 @@
+name: Python tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+      - name: Install project and test dependencies
+        run: uv sync --extra web --group dev
+      - name: Run test suite
+        run: uv run --no-sync pytest -q

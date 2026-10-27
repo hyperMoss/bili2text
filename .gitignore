@@ -182,3 +182,11 @@ outputs/
 .DS_Store
 cookies.txt
 cookies.json
+
+# Persisted user content and SQLite journals
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+cookies.txt

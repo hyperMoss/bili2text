@@ -134,3 +134,13 @@ uv run --no-sync pytest tests/test_cli.py tests/test_web.py tests/test_window_ap
 2. 补充更多自动化测试
 3. 为 Server Mode 增加更稳定的部署说明
 4. 让 Web UI 继续保持结构简单，等待设计稿接管
+
+## 数据完整性检查（只读）
+
+在转写或恢复批量任务前，运行：
+
+```bash
+uv run --no-sync bili2text audit --workspace .b2t
+```
+
+该命令不会初始化、修改或修复数据库。输出 JSON 包含文件、元数据、文字稿版本和 SQLite 关联检查；发现异常返回退出码 1。不要在未核实来源身份时自动合并同名文件。需要修改数据库时，先停止任务，并使用 SQLite backup API 备份 WAL 一致性快照。旧版 metadata 缺少摘要时，以数据库版本摘要检查文件。
