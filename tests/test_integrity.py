@@ -56,7 +56,7 @@ def test_unsafe_metadata_collision_is_rejected(tmp_path: Path) -> None:
     first = make_result(settings, "shared", "BV1xx411c7XD")
     library.register_transcript_result(first)
     conflicting = make_result(settings, "shared", "BV1G8uU6nECD")
-    with pytest.raises(ValueError, match="metadata source collision"):
+    with pytest.raises(ValueError, match="cannot safely reuse metadata"):
         library.register_transcript_result(conflicting)
     assert len(database.list_videos()) == 1
 
