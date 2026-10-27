@@ -7,7 +7,7 @@ import pytest
 
 from b2t.config import Settings
 from b2t.database import AppDatabase
-from b2t.integrity import audit_workspace, verified_active_transcript
+from b2t.integrity import audit_workspace, verified_active_transcript, has_verified_completed_source
 from b2t.library import WorkspaceLibrary
 from b2t.models import SourceRef, TranscriptResult
 
@@ -112,3 +112,24 @@ def test_duplicate_path_with_different_source_fails_before_sqlite_insert(tmp_pat
                               model="small", video_path=None, audio_path="",
                               metadata_path=str(settings.metadata_dir / "name.json"))
     assert database.get_video(video)["source_bv"] == "BV1xx411c7XD"
+
+
+def test_resume_requires_valid_metadata_and_hash(tmp_path: Path) -> None:
+    settings = Settings.from_workspace(tmp_path / ".b2t")
+    database = AppDatabase(settings)
+    library = WorkspaceLibrary(settings, database)
+    video_id = library.register_transcript_result(make_result(settings, "resume", "BV1xx411c7XD"))
+    assert has_verified_completed_source(
+        database, "BV1xx411c7XD", provider="whisper", model="small", audio_language="zh"
+    )
+    assert not has_verified_completed_source(
+        database, "BV1xx411c7XD", provider="whisper", model="large"
+    )
+    assert not has_verified_completed_source(
+        database, "https://www.bilibili.com/video/BV1xx411c7XD?p=2", provider="whisper", model="small"
+    )
+    original = database.get_active_transcript_version(video_id)
+    Path(original.file_path).write_text("corrupt\n", encoding="utf-8")
+    assert not has_verified_completed_source(
+        database, "BV1xx411c7XD", provider="whisper", model="small"
+    )

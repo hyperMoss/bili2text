@@ -251,3 +251,29 @@ def audit_workspace(settings: Settings) -> dict[str, Any]:
             _issue(issues, "database_read_error", path=str(settings.app_db_path), detail=str(error))
     return {"workspace": str(root), "read_only": True, "counts": counts,
             "issue_count": len(issues), "issues": issues}
+
+
+def has_verified_completed_source(database: Any, source_input: str, *,
+                                  provider: str, model: str,
+                                  audio_language: str | None = None) -> bool:
+    """Resume eligibility: match source identity, provider/model and on-disk bytes."""
+    from b2t.inputs import parse_source
+
+    source = parse_source(source_input)
+    expected = _normal_source(source.kind, source.raw_input, source.bv, source.page, source.path)
+    if expected is None:
+        return False
+    for video in database.list_videos():
+        if _record_source(video) != expected:
+            continue
+        if video["engine"] == "bilibili-subtitles":
+            if source.kind != "bilibili":
+                continue
+        elif video["engine"] != provider or video["model"] != model:
+            continue
+        elif (audio_language and audio_language != "auto"
+              and video.get("language") != audio_language):
+            continue
+        if verified_active_transcript(database, video):
+            return True
+    return False

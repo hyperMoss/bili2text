@@ -151,10 +151,10 @@ uv run --no-sync python scripts/watch_tasks.py --file sources.txt
 
 ### 恢复中断的本地 Whisper 批量任务
 
-先新建一个只包含**尚未完成**视频绝对路径的清单，例如 `remaining.txt`；不要把已经成功生成文字稿的文件再次放入清单。`batch` 会为每一行创建一次新的转写任务，不会根据已有文字稿自动跳过。
+先新建一个只包含**尚未完成**视频绝对路径的清单，例如 `remaining.txt`；不要把已经成功生成文字稿的文件再次放入清单。`batch` 默认会为每一行创建一次新的转写任务；恢复时使用 `--resume` 会核实来源、metadata、数据库版本、文件哈希与内容完整性后跳过已完成项，并去除输入清单中的重复来源。
 
 ```bash
-rtk proxy .venv/bin/python -u -m b2t batch --file remaining.txt --workspace .b2t --provider whisper --model small --device auto --audio-language zh
+rtk proxy .venv/bin/python -u -m b2t batch --file remaining.txt --resume --workspace .b2t --provider whisper --model small --device auto --audio-language zh
 ```
 
 该命令会优先使用 Apple Silicon 的 MPS；没有可用 GPU 时自动回退到 CPU。转写会按顺序执行，避免多个 Whisper 任务抢占同一块设备。另开一个终端查看进度，不会影响正在运行的转写：

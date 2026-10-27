@@ -110,7 +110,7 @@ Add `--once` to the monitor command for a single text snapshot without cursor co
 First create `remaining.txt` containing the absolute paths of **only unfinished** videos. Do not include files that already produced a transcript: `batch` creates a new transcription task for every input line and does not automatically skip an existing transcript.
 
 ```bash
-rtk proxy .venv/bin/python -u -m b2t batch --file remaining.txt --workspace .b2t --provider whisper --model small --device auto --audio-language zh
+rtk proxy .venv/bin/python -u -m b2t batch --file remaining.txt --resume --workspace .b2t --provider whisper --model small --device auto --audio-language zh
 ```
 
 On Apple Silicon, this prefers MPS and falls back to CPU when no usable GPU is available. Whisper jobs run one at a time so they do not compete for the same device. Open a second terminal to inspect progress without affecting the batch:

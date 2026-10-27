@@ -17,7 +17,7 @@ from b2t.factory import build_pipeline
 from b2t.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, dependency_sync_guidance, resolve_language, tr
 from b2t.inputs import parse_source_list
 from b2t.library import WorkspaceLibrary
-from b2t.integrity import audit_workspace
+from b2t.integrity import audit_workspace, has_verified_completed_source
 from b2t.tasks import TaskService
 from b2t.user_config import AppConfig
 
@@ -125,6 +125,7 @@ def create_app(language: str = DEFAULT_LANGUAGE) -> typer.Typer:
     def batch_transcribe(
         sources: list[str] | None = typer.Argument(None, help=tr(language, "arg_sources_help")),
         source_file: Path | None = typer.Option(None, "--file", "-f", help=tr(language, "opt_source_file_help")),
+        resume: bool = typer.Option(False, "--resume", help="Skip only fully verified completed transcripts"),
         provider: str | None = typer.Option(None, "--provider", help=tr(language, "opt_provider_help")),
         model: str | None = typer.Option(None, "--model", help=tr(language, "opt_model_help")),
         audio_language: str | None = typer.Option(None, "--audio-language", help=tr(language, "opt_audio_language_help")),
@@ -148,7 +149,30 @@ def create_app(language: str = DEFAULT_LANGUAGE) -> typer.Typer:
             )
             source_values = _collect_batch_sources(sources or [], source_file)
             tasks = []
+            skipped = 0
+            seen: set[tuple[object, ...]] = set()
+            from b2t.inputs import parse_source
+            from b2t.integrity import _normal_source
             for index, source in enumerate(source_values):
+                if resume:
+                    ref = parse_source(source)
+                    identity = _normal_source(ref.kind, ref.raw_input, ref.bv, ref.page, ref.path)
+                    selection = (identity, provider or config.default_provider, model or config.default_model)
+                    if selection in seen:
+                        skipped += 1
+                        typer.echo(f"SKIP duplicate input: {source}")
+                        continue
+                    seen.add(selection)
+                    language_filter = audio_language
+                    if language_filter is None and (provider or config.default_provider).lower() == "whisper":
+                        language_filter = config.whisper.audio_language
+                    if has_verified_completed_source(
+                        service.database, source, provider=provider or config.default_provider,
+                        model=model or config.default_model, audio_language=language_filter,
+                    ):
+                        skipped += 1
+                        typer.echo(f"SKIP verified transcript: {source}")
+                        continue
                 renderer = TqdmTaskRenderer(
                     config.language, label=f"[{index + 1}/{len(source_values)}] {Path(source).name}", position=index,
                 )
@@ -161,6 +185,8 @@ def create_app(language: str = DEFAULT_LANGUAGE) -> typer.Typer:
                     listener=renderer,
                 ))
             typer.echo(tr(config.language, "batch_submitted", count=len(tasks)))
+            if resume:
+                typer.echo(f"Resume: {skipped} verified/duplicate inputs skipped")
             for task in tasks:
                 typer.echo(f"{task.id}\t{task.source_input}")
 
