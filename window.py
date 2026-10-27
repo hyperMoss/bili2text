@@ -1,39 +1,16 @@
+"""Legacy script entry point for the shared desktop interface."""
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parent
-SRC = ROOT / "src"
+SRC = Path(__file__).resolve().parent / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-try:
-    from b2t.bootstrap import ensure_bootstrap
-    from b2t.config import Settings
-    from b2t.factory import build_pipeline
-    from b2t.window_app import run_window
-except ModuleNotFoundError as exc:
-    missing = exc.name or "dependency"
+from b2t.cli import create_app, _detect_preferred_language
 
-    def main() -> None:
-        raise SystemExit(
-            f"Missing dependency '{missing}'. Run `uv sync --extra whisper --extra web` first."
-        )
-else:
-    def main() -> None:
-        settings = Settings.from_workspace(None)
-        config = ensure_bootstrap(settings=settings, allow_prompt=sys.stdin.isatty())
-        run_window(
-            pipeline_factory=lambda provider, model, workspace: build_pipeline(
-                settings=Settings.from_workspace(workspace or settings.workspace_root),
-                config=config,
-                provider=provider or config.default_provider,
-                model=model or config.default_model,
-            ),
-            default_provider=config.default_provider,
-            default_model=config.default_model,
-            default_workspace=settings.workspace_root,
-            language=config.language,
-        )
+
+def main() -> None:
+    create_app(_detect_preferred_language())(["window", *sys.argv[1:]], prog_name="bili2text")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 import uuid
@@ -48,7 +49,8 @@ class AppDatabase:
                     video_id INTEGER,
                     created_at TEXT NOT NULL,
                     started_at TEXT,
-                    finished_at TEXT
+                    finished_at TEXT,
+                    runner_pid INTEGER
                 );
 
                 CREATE TABLE IF NOT EXISTS task_progress_events (
@@ -116,9 +118,21 @@ class AppDatabase:
                 );
                 """
             )
+            task_columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(tasks)")}
+            if "runner_pid" not in task_columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN runner_pid INTEGER")
 
-    def create_task(self, *, kind: str, source_input: str, provider: str, model: str) -> TaskRecord:
+    def create_task(
+        self,
+        *,
+        kind: str,
+        source_input: str,
+        provider: str,
+        model: str,
+        runner_pid: int | None = None,
+    ) -> TaskRecord:
         now = utc_now()
+        task_runner_pid = os.getpid() if runner_pid is None else runner_pid
         task = TaskRecord(
             id=uuid.uuid4().hex,
             kind=kind,
@@ -128,14 +142,15 @@ class AppDatabase:
             model=model,
             workspace_root=str(self.settings.workspace_root),
             created_at=now,
+            runner_pid=task_runner_pid,
         )
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO tasks (
                     id, kind, status, source_input, provider, model, workspace_root,
-                    progress_percent, current_stage, current_message, error_message, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    progress_percent, current_stage, current_message, error_message, created_at, runner_pid
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task.id,
@@ -150,9 +165,32 @@ class AppDatabase:
                     task.current_message,
                     task.error_message,
                     task.created_at,
+                    task.runner_pid,
                 ),
             )
         return task
+
+    def reconcile_interrupted_tasks(self) -> int:
+        """Mark unfinished tasks as cancelled only after their runner has exited."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, runner_pid FROM tasks WHERE status IN ('queued', 'running')"
+            ).fetchall()
+            interrupted_ids = [row["id"] for row in rows if not _process_is_running(row["runner_pid"])]
+            if not interrupted_ids:
+                return 0
+            now = utc_now()
+            conn.executemany(
+                """
+                UPDATE tasks
+                SET status = 'cancelled', current_stage = 'cancelled',
+                    current_message = 'task runner stopped; submit this source again to restart',
+                    finished_at = ?
+                WHERE id = ? AND status IN ('queued', 'running')
+                """,
+                [(now, task_id) for task_id in interrupted_ids],
+            )
+        return len(interrupted_ids)
 
     def record_progress(self, snapshot: ProgressSnapshot) -> None:
         with self._connect() as conn:
@@ -569,6 +607,7 @@ class AppDatabase:
             created_at=row["created_at"],
             started_at=row["started_at"],
             finished_at=row["finished_at"],
+            runner_pid=None if row["runner_pid"] is None else int(row["runner_pid"]),
         )
 
     def _version_from_row(self, row: sqlite3.Row) -> TranscriptVersionRecord:
@@ -587,3 +626,15 @@ class AppDatabase:
 
 def slugify(value: str) -> str:
     return "-".join(value.strip().lower().split())
+
+
+def _process_is_running(pid: int | None) -> bool:
+    if pid is None or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True

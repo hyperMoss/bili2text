@@ -85,6 +85,67 @@ def test_parse_ffmpeg_progress_seconds_supports_us_and_ms() -> None:
     assert _parse_ffmpeg_progress_seconds("progress=continue") is None
 
 
+def test_audio_extraction_does_not_block_when_ffmpeg_fills_stderr(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    from concurrent.futures import ThreadPoolExecutor
+    from b2t.progress import ProgressReporter
+
+    settings = Settings.from_workspace(tmp_path / ".b2t")
+    settings.ensure_directories()
+    pipeline = B2TPipeline(settings=settings, downloader=None)
+    events, children = [], []
+    popen = subprocess.Popen
+    script = (
+        "import os,sys; from pathlib import Path; "
+        "os.write(2, b'decoder warning\\n' * 65536); "
+        "os.write(1, b'out_time_us=60000000\\nprogress=end\\n'); "
+        "Path(sys.argv[-1]).write_bytes(b'wav')"
+    )
+
+    def start(command, **kwargs):
+        child = popen([sys.executable, "-c", script, command[-1]], **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr("b2t.pipeline.shutil.which", lambda name: sys.executable)
+    monkeypatch.setattr("b2t.pipeline._probe_media_duration_seconds", lambda path: 60)
+    monkeypatch.setattr("b2t.pipeline.subprocess.Popen", start)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(pipeline._extract_audio, tmp_path / "video.mp4", "video",
+                                 ProgressReporter("extract", callback=events.append))
+        try:
+            audio = future.result(timeout=3)
+        finally:
+            for child in children:
+                if child.poll() is None:
+                    child.kill()
+                child.wait()
+        assert audio.read_bytes() == b"wav"
+        assert events[-1].percent == 0.55
+
+
+def test_audio_extraction_preserves_non_utf8_ffmpeg_failure_details(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    import pytest
+    from b2t.progress import ProgressReporter
+
+    settings = Settings.from_workspace(tmp_path / ".b2t")
+    settings.ensure_directories()
+    pipeline = B2TPipeline(settings=settings, downloader=None)
+    popen = subprocess.Popen
+
+    def start(command, **kwargs):
+        return popen([sys.executable, "-c", "import os; os.write(2, b'\\xfffatal decoder error'); raise SystemExit(1)"], **kwargs)
+
+    monkeypatch.setattr("b2t.pipeline.shutil.which", lambda name: sys.executable)
+    monkeypatch.setattr("b2t.pipeline._probe_media_duration_seconds", lambda path: 60)
+    monkeypatch.setattr("b2t.pipeline.subprocess.Popen", start)
+    with pytest.raises(RuntimeError, match="ffmpeg failed to extract audio: .*fatal decoder error"):
+        pipeline._extract_audio(tmp_path / "video.mp4", "video", ProgressReporter("extract"))
+
+
 def test_pipeline_reuses_prepared_download_and_preserves_bv(tmp_path, monkeypatch):
     from b2t.inputs import parse_source
 

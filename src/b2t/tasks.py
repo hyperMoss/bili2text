@@ -19,6 +19,7 @@ class TaskService:
         self.database = database
         self.library = library
         self.pipeline_factory = pipeline_factory
+        self.database.reconcile_interrupted_tasks()
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="b2t-task")
         self.whisper_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="b2t-whisper")
         self._listeners: dict[str, list[ProgressCallback]] = {}
@@ -91,9 +92,11 @@ class TaskService:
             self._listeners.setdefault(task_id, []).append(callback)
 
     def get_task(self, task_id: str) -> TaskRecord | None:
+        self.database.reconcile_interrupted_tasks()
         return self.database.get_task(task_id)
 
     def list_tasks(self) -> list[TaskRecord]:
+        self.database.reconcile_interrupted_tasks()
         return self.database.list_tasks()
 
     def _run_transcription(self, task_id: str, source: str, provider: str, model: str, prompt: str, downloaded: DownloadResult | None = None) -> None:

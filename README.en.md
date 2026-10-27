@@ -20,7 +20,7 @@
 
 Give it a URL or BV id, and it'll download the video, extract the audio, run speech recognition, and hand you a transcript. It supports multiple transcription engines — run everything locally and offline, or connect to a cloud service.
 
-There's also a simple web UI and a desktop window for anyone who'd rather not use the terminal.
+The web and desktop entry points share the same interface.
 
 ![Screenshot](assets/new_v_sc.png)
 
@@ -50,7 +50,7 @@ This only installs core dependencies. Transcription engines and extra features a
 uv sync --extra whisper --extra web
 ```
 
-Available extras: `whisper`, `sensevoice`, `volcengine`, `web`, `server`.
+Available extras: `whisper`, `sensevoice`, `volcengine`, `web`, `server`, `window`.
 
 ### Set Up
 
@@ -104,6 +104,22 @@ uv run --no-sync python scripts/watch_tasks.py --file sources.txt
 
 With RTK, use `rtk proxy uv run` to retain live output; `rtk uv run` buffers output.
 Add `--once` to the monitor command for a single text snapshot without cursor controls.
+
+### Resume an Interrupted Local Whisper Batch
+
+First create `remaining.txt` containing the absolute paths of **only unfinished** videos. Do not include files that already produced a transcript: `batch` creates a new transcription task for every input line and does not automatically skip an existing transcript.
+
+```bash
+rtk proxy .venv/bin/python -u -m b2t batch --file remaining.txt --workspace .b2t --provider whisper --model small --device auto --audio-language zh
+```
+
+On Apple Silicon, this prefers MPS and falls back to CPU when no usable GPU is available. Whisper jobs run one at a time so they do not compete for the same device. Open a second terminal to inspect progress without affecting the batch:
+
+```bash
+rtk proxy .venv/bin/python -u scripts/watch_tasks.py --file remaining.txt
+```
+
+After a terminal or computer restart, rerun the first command to continue the list. Remove completed entries from `remaining.txt` first. Ctrl+C interrupts the current batch but keeps downloaded local videos.
 
 ### Download and Resume Videos
 
@@ -233,13 +249,33 @@ Keep cookie files local; they contain login credentials.
 uv run bili2text --help
 ```
 
-## Web UI & Server Mode
+## Web, desktop, and server modes
+
+`web` and `window` share pages, configuration, and task services. Both support batches, local file selection, progress and logs, a transcript library, editing, version activation, categories, tags, and text export. Styles are bundled for offline use.
+
+Install Whisper and the desktop dependencies. The `window` extra includes the web dependencies:
+
+```bash
+uv sync --extra whisper --extra window
+```
 
 Start the web interface (opens in your browser):
 
 ```bash
 uv run bili2text ui
 ```
+
+Open the same interface in a native window:
+
+```bash
+uv run bili2text window
+```
+
+The desktop window uses pywebview with a loopback server on a random port. Closing the window stops that server. Browser mode uses `127.0.0.1:8000` by default. Press Ctrl+C to stop it. Submitted tasks finish before the process exits.
+
+Both commands read `.b2t` in the current directory. Use `--workspace /path/to/workspace` and restart to switch workspaces. Selected files are copied to `downloads/imports`. Enter a local path directly to avoid copying.
+
+Windows uses Edge WebView2, and macOS uses system WebKit. Linux needs a supported GTK or Qt runtime. See the [pywebview installation guide](https://pywebview.flowrl.com/guide/installation.html).
 
 Run in server mode (good for Docker or LAN deployment):
 

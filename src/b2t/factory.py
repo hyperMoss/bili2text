@@ -6,7 +6,7 @@ from b2t.config import Settings
 from b2t.downloaders import YtDlpDownloader
 from b2t.pipeline import B2TPipeline
 from b2t.transcribers import LocalWhisperTranscriber
-from b2t.user_config import AppConfig, DEFAULT_CHINESE_PROMPT
+from b2t.user_config import AppConfig
 
 
 def build_pipeline(
@@ -28,9 +28,7 @@ def build_pipeline(
     if selected_provider == "whisper" and selected_device not in {"auto", "cpu", "cuda", "mps"}:
         raise ValueError("Whisper device must be auto, cpu, cuda or mps")
     selected_language = audio_language if audio_language is not None else config.whisper.audio_language
-    initial_prompt = config.whisper.initial_prompt
-    if selected_language.strip().lower() not in {"zh", "chinese"} and initial_prompt == DEFAULT_CHINESE_PROMPT:
-        initial_prompt = ""
+    initial_prompt = config.whisper.prompt_for_language(selected_language)
 
     def create_transcriber():
         if selected_provider == "whisper":

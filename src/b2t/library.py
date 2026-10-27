@@ -57,7 +57,7 @@ class WorkspaceLibrary:
             raise RuntimeError(f"video not found: {video_id}")
 
         base_name = safe_stem(str(video["display_name"]) or f"video-{video_id}")
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         path = self.settings.transcripts_edited_dir / f"{base_name}-{video_id}-{timestamp}.txt"
         path.write_text(text.rstrip() + "\n", encoding="utf-8")
         return self.database.create_transcript_version(

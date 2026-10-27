@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -ld ~/.gemini/skills; echo \"--- config ---\"; ls -la ~/.gemini/config; echo \"--- tmp ---\"; ls -la ~/.gemini/tmp | head)",
+      "Read(//Users/gooingyu/.gemini/skills/**)"
+    ]
+  }
+}

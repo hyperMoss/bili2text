@@ -371,8 +371,8 @@ def create_app(language: str = DEFAULT_LANGUAGE) -> typer.Typer:
         model: str | None = typer.Option(None, "--model", help=tr(language, "opt_model_help")),
         workspace: Path | None = typer.Option(None, "--workspace", help=tr(language, "opt_workspace_help")),
     ) -> None:
-        """Launch the plain HTML web interface."""
-        _run_server(host=host, port=port, provider=provider, model=model, workspace=workspace)
+        """Open the shared interface in a browser."""
+        _run_server(host=host, port=port, provider=provider, model=model, workspace=workspace, browser=True)
 
     @app.command("server", help=tr(language, "cmd_server_help"))
     @app.command("srv", hidden=True)
@@ -393,23 +393,10 @@ def create_app(language: str = DEFAULT_LANGUAGE) -> typer.Typer:
         model: str | None = typer.Option(None, "--model", help=tr(language, "opt_model_help")),
         workspace: Path | None = typer.Option(None, "--workspace", help=tr(language, "opt_workspace_help")),
     ) -> None:
-        """Launch the Tk window feature."""
-        from b2t.window_app import run_window
-
-        settings, config = _load_runtime(workspace=workspace, provider=provider, model=model)
-
-        run_window(
-            pipeline_factory=lambda selected_provider, selected_model, selected_workspace: build_pipeline(
-                settings=Settings.from_workspace(selected_workspace or settings.workspace_root),
-                config=config,
-                provider=selected_provider or provider or config.default_provider,
-                model=selected_model or model or config.default_model,
-            ),
-            default_provider=provider or config.default_provider,
-            default_model=model or config.default_model,
-            default_workspace=settings.workspace_root,
-            default_prompt=config.whisper.initial_prompt,
-            language=config.language,
+        """Open the shared interface in a native WebView window."""
+        _run_server(
+            host="127.0.0.1", port=0, provider=provider, model=model,
+            workspace=workspace, desktop=True,
         )
 
     @app.command("language", help=tr(language, "cmd_language_help"))
@@ -456,24 +443,29 @@ def _load_runtime(
     return settings, config
 
 
-def _run_server(*, host: str, port: int, provider: str | None, model: str | None, workspace: Path | None) -> None:
+def _run_server(
+    *, host: str, port: int, provider: str | None, model: str | None,
+    workspace: Path | None, desktop: bool = False, browser: bool = False,
+) -> None:
     selected_language = _detect_preferred_language(workspace)
     try:
         import uvicorn
+        from b2t.web import create_app
+        if desktop:
+            import webview  # noqa: F401
     except ImportError as exc:
         typer.secho(
             tr(
                 selected_language,
                 "missing_dependency",
-                name="web/server",
-                guidance=dependency_sync_guidance(selected_language),
+                name="window" if desktop else "web/server",
+                guidance=(dependency_sync_guidance(selected_language) + "\nuv sync --extra whisper --extra window"
+                          if desktop else dependency_sync_guidance(selected_language)),
             ),
             err=True,
             fg=typer.colors.RED,
         )
         raise typer.Exit(code=1) from exc
-
-    from b2t.web import create_app
 
     settings, config = _load_runtime(workspace=workspace, provider=provider, model=model)
     service = _build_task_service(settings=settings, config=config, provider=provider, model=model)
@@ -483,10 +475,19 @@ def _run_server(*, host: str, port: int, provider: str | None, model: str | None
         database=service.database,
         default_provider=provider or config.default_provider,
         default_model=model or config.default_model,
+        default_prompt=config.whisper.prompt_for_language(),
         language=config.language,
+        local_actions=(desktop or browser) and host in {"127.0.0.1", "localhost", "::1"},
     )
     try:
-        uvicorn.run(app_instance, host=host, port=port)
+        if desktop:
+            from b2t.window_app import run_window
+            run_window(app=app_instance)
+        elif browser:
+            from b2t.window_app import run_browser
+            run_browser(app=app_instance, host=host, port=port)
+        else:
+            uvicorn.run(app_instance, host=host, port=port)
     finally:
         service.shutdown(wait=True)
 

@@ -21,6 +21,12 @@ class WhisperConfig:
     initial_prompt: str = DEFAULT_CHINESE_PROMPT
     simplified: bool = True
 
+    def prompt_for_language(self, language: str | None = None) -> str:
+        selected_language = self.audio_language if language is None else language
+        if selected_language.strip().lower() not in {"zh", "chinese"} and self.initial_prompt == DEFAULT_CHINESE_PROMPT:
+            return ""
+        return self.initial_prompt
+
 
 @dataclass(slots=True)
 class SenseVoiceConfig:

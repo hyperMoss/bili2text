@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}bili2text{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body data-action-token="{{ action_token }}">
+  <header class="app-header">
+    <a class="brand" href="/">bili<span>2</span>text</a>
+    <nav aria-label="{{ t('web_back_home') }}">
+      <a href="/#new">{{ t("web_form_title") }}</a>
+      <a href="/#tasks">{{ t("web_tasks") }}</a>
+      <a href="/#library">{{ t("web_library") }}</a>
+    </nav>
+  </header>
+  <main class="shell">
+    {% block content %}{% endblock %}
+    <footer class="workspace">
+      <div><strong>{{ t("window_workspace") }}</strong><p class="path">{{ workspace }}</p>
+      <p class="muted">{{ t("web_workspace_hint") }}</p></div>
+      {% if action_token %}<button type="button" id="open-workspace" class="secondary">{{ t("window_open_workspace") }}</button>{% endif %}
+      <p id="action-message" role="status"></p>
+    </footer>
+  </main>
+  <script id="ui-messages" type="application/json">{{ {
+    "connectionError": t("web_connection_error"), "submitting": t("web_submitting"),
+    "actionError": t("web_action_error"), "opened": t("web_opened"),
+    "queued": t("web_queued"), "running": t("web_running"), "completed": t("web_completed"),
+    "failed": t("web_failed"), "cancelled": t("web_cancelled")
+  } | tojson }}</script>
+</body>
+</html>

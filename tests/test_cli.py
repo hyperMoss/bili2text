@@ -1,9 +1,57 @@
 from typer.testing import CliRunner
+import sys
+from types import SimpleNamespace
+
+from fastapi.testclient import TestClient
+import pytest
 
 from b2t.cli import app
 
 
 runner = CliRunner()
+
+
+@pytest.mark.parametrize("command", ["web", "ui", "window", "win", "server"])
+@pytest.mark.parametrize("audio_language", ["zh", "en"])
+def test_ui_commands_use_shared_config_and_pages(tmp_path, monkeypatch, command, audio_language) -> None:
+    from b2t.config import Settings
+    from b2t.user_config import AppConfig, WhisperConfig
+
+    settings = Settings.from_workspace(tmp_path / ".b2t")
+    config = AppConfig(default_model="medium", whisper=WhisperConfig(audio_language=audio_language))
+    if audio_language == "zh":
+        config.whisper.initial_prompt = "saved Chinese prompt"
+    config.save(settings)
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace())
+    captured = []
+
+    def capture(*, app, **kwargs):
+        response = TestClient(app).get("/")
+        assert response.status_code == 200
+        captured.append(response.text)
+
+    monkeypatch.setattr("b2t.window_app.run_window", capture)
+    monkeypatch.setattr("b2t.window_app.run_browser", capture)
+    monkeypatch.setattr("uvicorn.run", lambda app, **kwargs: capture(app=app))
+    result = runner.invoke(app, [command, "--workspace", str(settings.workspace_root)])
+    assert result.exit_code == 0, result.output
+    assert len(captured) == 1
+    html = captured[0]
+    if audio_language == "zh":
+        assert "saved Chinese prompt" in html
+    else:
+        assert "以下是普通话的句子" not in html
+    assert 'value="medium"' in html
+    assert "结果库" in html and "最近任务" in html
+    assert str(settings.workspace_root) in html
+    assert ('id="open-workspace"' in html) == (command != "server")
+
+
+def test_window_missing_dependency_explains_installation(tmp_path, monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "webview", None)
+    result = runner.invoke(app, ["window", "--workspace", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "uv sync --extra whisper --extra window" in result.stderr
 
 
 def test_cli_help_renders() -> None:

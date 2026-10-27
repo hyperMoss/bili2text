@@ -44,7 +44,13 @@ server = [
   "python-multipart>=0.0.20",
   "uvicorn>=0.34.0",
 ]
-window = []
+window = [
+  "fastapi>=0.115.12",
+  "jinja2>=3.1.6",
+  "python-multipart>=0.0.20",
+  "uvicorn>=0.34.0",
+  "pywebview>=5.4",
+]
 
 [project.scripts]
 bili2text = "b2t.cli:main"

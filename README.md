@@ -23,7 +23,7 @@
 
 贴一个 Bilibili 链接或 BV 号进去，它会自动下载视频、提取音频、跑语音识别，最后输出一份文字稿。支持多种转写引擎，可以在本地离线跑，也可以接云端服务。
 
-除了命令行，还附带了简单的 Web 界面和桌面窗口，方便不习惯终端的用户使用。
+除了命令行，还提供共用同一套界面的 Web 和桌面入口。
 
 ![截图](assets/new_v_sc.png)
 
@@ -57,7 +57,7 @@ uv sync
 uv sync --extra whisper --extra web
 ```
 
-可选的 extras：`whisper`、`sensevoice`、`volcengine`、`web`、`server`。可以暂时不用安装，详看下方的初始化文档。
+可选的 extras：`whisper`、`sensevoice`、`volcengine`、`web`、`server`、`window`。可以暂时不用安装，详看下方的初始化文档。
 
 ### 初始化配置
 
@@ -148,6 +148,22 @@ uv run --no-sync python scripts/watch_tasks.py --file sources.txt
 
 使用 RTK 时，以 `rtk proxy uv run` 开头保留实时输出；`rtk uv run` 会缓存输出。
 需要一次性文本快照时，在监看命令末尾加 `--once`，不输出光标控制字符。
+
+### 恢复中断的本地 Whisper 批量任务
+
+先新建一个只包含**尚未完成**视频绝对路径的清单，例如 `remaining.txt`；不要把已经成功生成文字稿的文件再次放入清单。`batch` 会为每一行创建一次新的转写任务，不会根据已有文字稿自动跳过。
+
+```bash
+rtk proxy .venv/bin/python -u -m b2t batch --file remaining.txt --workspace .b2t --provider whisper --model small --device auto --audio-language zh
+```
+
+该命令会优先使用 Apple Silicon 的 MPS；没有可用 GPU 时自动回退到 CPU。转写会按顺序执行，避免多个 Whisper 任务抢占同一块设备。另开一个终端查看进度，不会影响正在运行的转写：
+
+```bash
+rtk proxy .venv/bin/python -u scripts/watch_tasks.py --file remaining.txt
+```
+
+若终端或电脑已重启，重新执行第一条命令即可恢复清单中的任务；已完成项仍应从 `remaining.txt` 删除。按 Ctrl+C 会中止当前批量，已下载的本地视频会保留。
 
 ### 仅下载视频与断点续传
 
@@ -257,13 +273,33 @@ Whisper 文字稿优先按句末标点一行一句，跨时间段的未完句会
 uv run bili2text --help
 ```
 
-## Web 界面 & 服务模式
+## Web、桌面窗口与服务模式
 
-启动 Web 界面（浏览器访问）：
+`web` 和 `window` 共用页面、配置和任务服务，均支持批量转写、本地文件选择、任务进度与日志、结果库、文字稿编辑、版本切换、分类、标签和文本导出。样式随应用安装，无需访问外部 CDN。
+
+安装 Whisper 和桌面依赖，`window` 已包含 Web 所需的依赖：
+
+```bash
+uv sync --extra whisper --extra window
+```
+
+在浏览器中自动打开界面：
 
 ```bash
 uv run bili2text ui
 ```
+
+在独立桌面窗口中打开相同界面：
+
+```bash
+uv run bili2text window
+```
+
+桌面窗口使用 pywebview，内部服务仅监听本机随机端口，关闭窗口后停止服务。浏览器模式默认使用 `127.0.0.1:8000`，按 Ctrl+C 停止。已提交任务会继续完成后再退出进程。
+
+两个入口默认读取当前目录的 `.b2t`。用 `--workspace /path/to/workspace` 指定其他目录，重启界面即可切换。选择的本地文件会复制到工作目录的 `downloads/imports`，也可直接输入本机路径避免复制。
+
+Windows 使用 Edge WebView2，macOS 使用系统 WebKit。Linux 需要额外安装 pywebview 支持的 GTK 或 Qt 运行环境，参见 [pywebview 安装说明](https://pywebview.flowrl.com/guide/installation.html)。
 
 以服务模式运行（适合 Docker 或局域网部署）：
 

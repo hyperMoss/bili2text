@@ -20,8 +20,9 @@ src/b2t/
   factory.py        Provider / Downloader 组装
   downloaders/      下载实现
   transcribers/     转写 Provider
-  templates/        朴素 Web 模板
-  window_app.py     Tk Feature
+  templates/        Web 与桌面共用的 Jinja 模板
+  static/           共用的本地样式与交互脚本
+  window_app.py     浏览器与 pywebview 窗口启动、服务生命周期
 tests/              自动化测试
 assets/             logo、截图、favicon 等素材
 archive/            旧版脚本与历史文件
@@ -34,6 +35,8 @@ archive/            旧版脚本与历史文件
 ```bash
 uv sync --extra whisper --extra web
 ```
+
+验证桌面入口时改用 `uv sync --extra whisper --extra window`。该 extra 包含 Web 依赖。
 
 如需 SenseVoice / 火山引擎：
 
@@ -96,6 +99,16 @@ pytest -q
 - 调用统一 Pipeline
 - 输出结果
 - 不复制核心业务逻辑
+
+`web` 和 `window` 必须调用同一个 `web.create_app` 和 `TaskService`。桌面窗口仅加载本地 HTTP 页面，不另写转写表单或执行 Pipeline。新增界面功能应放在共用模板与 `static/` 中。
+
+统一入口的回归检查：
+
+```bash
+uv run --no-sync pytest tests/test_cli.py tests/test_web.py tests/test_window_app.py tests/test_bootstrap_env.py -q
+```
+
+窗口测试使用真实 HTTP 服务验证启动与关闭，原生窗口驱动使用替身。桌面 GUI 仍需实际启动验证。转写接口测试使用固定结果，不代表模型、网络下载或 B 站账号已通过验证。
 
 ## 提交建议
 

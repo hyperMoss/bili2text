@@ -17,14 +17,14 @@ def test_collect_required_extras_combines_providers_and_features() -> None:
     assert collect_required_extras(
         providers=["whisper", "volcengine"],
         features=["web", "window"],
-    ) == ["whisper", "volcengine", "web"]
+    ) == ["whisper", "volcengine", "web", "window"]
 
 
-def test_collect_required_extras_excludes_window_extra() -> None:
+def test_collect_required_extras_installs_shared_ui_and_native_window() -> None:
     assert collect_required_extras(
         providers=["sensevoice"],
         features=["window", "server"],
-    ) == ["sensevoice", "server"]
+    ) == ["sensevoice", "window", "server"]
 
 
 def test_build_uv_sync_command_is_stable() -> None:
@@ -98,7 +98,7 @@ def test_sync_environment_for_config_uses_saved_provider_and_feature_selection(t
         runner=fake_runner,
     )
     assert result.ok is True
-    assert calls == [["uv", "sync", "--extra", "sensevoice", "--extra", "volcengine", "--extra", "server"]]
+    assert calls == [["uv", "sync", "--extra", "sensevoice", "--extra", "volcengine", "--extra", "window", "--extra", "server"]]
 
 
 def test_run_bootstrap_updates_default_model_when_whisper_becomes_default(

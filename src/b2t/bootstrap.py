@@ -21,9 +21,8 @@ def uv_available(which=shutil.which) -> bool:
 def collect_required_extras(*, providers: list[str], features: list[str]) -> list[str]:
     extras: list[str] = []
     for name in [*providers, *features]:
-        mapped = name if name != "window" else ""
-        if mapped and mapped not in extras:
-            extras.append(mapped)
+        if name not in extras:
+            extras.append(name)
     return extras
 
 

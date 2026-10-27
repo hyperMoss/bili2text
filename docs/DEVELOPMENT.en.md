@@ -20,8 +20,9 @@ src/b2t/
   factory.py        downloader/provider assembly
   downloaders/      download implementations
   transcribers/     speech-to-text providers
-  templates/        plain web templates
-  window_app.py     Tk feature
+  templates/        Jinja templates shared by web and desktop
+  static/           shared local styles and scripts
+  window_app.py     browser and pywebview launch, server lifecycle
 tests/              automated tests
 assets/             logos, screenshots, favicon, materials
 archive/            preserved legacy files
@@ -32,6 +33,8 @@ archive/            preserved legacy files
 ```bash
 uv sync --extra whisper --extra web
 ```
+
+For desktop verification, use `uv sync --extra whisper --extra window`. This extra includes the web dependencies.
 
 Add more providers when needed:
 
@@ -94,6 +97,16 @@ When adding a provider:
 - call the shared pipeline
 - present results
 - avoid duplicating business logic
+
+`web` and `window` must call the same `web.create_app` and `TaskService`. The desktop window loads local HTTP pages. Add UI behavior to the shared templates and `static/`.
+
+Run the shared UI regression checks:
+
+```bash
+uv run --no-sync pytest tests/test_cli.py tests/test_web.py tests/test_window_app.py tests/test_bootstrap_env.py -q
+```
+
+Window tests use a real HTTP server and a substitute native driver. Verify the desktop GUI by launching it too. Transcription API tests use fixed results and do not validate models, downloads, or Bilibili account access.
 
 ## Commit Style
 

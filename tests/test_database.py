@@ -42,6 +42,43 @@ def test_database_persists_task_progress(tmp_path: Path) -> None:
     assert loaded.progress_percent == 0.25
 
 
+def test_database_cancels_tasks_left_by_a_stopped_runner(tmp_path: Path) -> None:
+    settings = Settings.from_workspace(tmp_path / ".b2t")
+    database = AppDatabase(settings)
+    stopped_task = database.create_task(
+        kind="transcription",
+        source_input="stopped.mp4",
+        provider="whisper",
+        model="small",
+        runner_pid=999_999_999,
+    )
+    database.record_progress(
+        ProgressSnapshot(
+            task_id=stopped_task.id,
+            status="running",
+            stage="transcribing",
+            message="transcribing",
+            percent=0.5,
+        )
+    )
+    active_task = database.create_task(
+        kind="transcription",
+        source_input="active.mp4",
+        provider="whisper",
+        model="small",
+    )
+
+    assert database.reconcile_interrupted_tasks() == 1
+
+    stopped = database.get_task(stopped_task.id)
+    assert stopped is not None
+    assert stopped.status == "cancelled"
+    assert stopped.current_stage == "cancelled"
+    assert stopped.finished_at is not None
+    assert "stopped" in stopped.current_message
+    assert database.get_task(active_task.id).status == "queued"
+
+
 def test_workspace_library_indexes_existing_files(tmp_path: Path) -> None:
     settings = Settings.from_workspace(tmp_path / ".b2t")
     settings.ensure_directories()

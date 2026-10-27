@@ -1,67 +1,63 @@
-<!DOCTYPE html>
-<html lang="{{ lang }}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ t("web_title") }}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-50 text-gray-900">
-  <main class="max-w-5xl mx-auto px-6 py-8 space-y-8">
-    <header class="space-y-2">
-      <h1 class="text-3xl font-semibold">{{ t("web_title") }}</h1>
-      <p class="text-sm text-gray-600">{{ t("web_subtitle") }}</p>
-    </header>
-
-    {% if error %}
-    <section class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-      {{ error }}
-    </section>
-    {% endif %}
-
-    <section class="rounded-xl border border-gray-200 bg-white p-6 space-y-4">
-      <h2 class="text-lg font-medium">{{ t("web_form_title") }}</h2>
-      <form method="post" action="/transcribe" class="space-y-4">
-        <textarea name="source" rows="4" placeholder="BV1xxxxxxxxx" class="w-full rounded border px-3 py-2">{{ values.source }}</textarea>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <select name="provider" class="rounded border px-3 py-2">
-            <option value="whisper" {% if values.provider == "whisper" %}selected{% endif %}>whisper</option>
-            <option value="sensevoice" {% if values.provider == "sensevoice" %}selected{% endif %}>sensevoice</option>
-            <option value="volcengine" {% if values.provider == "volcengine" %}selected{% endif %}>volcengine</option>
-          </select>
-          <input name="model" value="{{ values.model }}" class="rounded border px-3 py-2">
-        </div>
-        <textarea name="prompt" rows="3" class="w-full rounded border px-3 py-2">{{ values.prompt }}</textarea>
-        <button type="submit" class="rounded bg-indigo-600 px-4 py-2 text-white">{{ t("web_submit") }}</button>
-      </form>
-    </section>
-
-    <section class="rounded-xl border border-gray-200 bg-white p-6 space-y-4">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-medium">Videos</h2>
-        <span class="text-sm text-gray-500">{{ videos|length }}</span>
+{% extends "base.html" %}
+{% block content %}
+<div class="intro"><p class="eyebrow">BILIBILI · AUDIO · VIDEO</p>
+  <h1>{{ t("web_subtitle") }}</h1>
+</div>
+{% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}
+<section class="card" id="new">
+  <h2>{{ t("web_form_title") }}</h2>
+  <form method="post" action="/transcribe" enctype="multipart/form-data" class="stack" data-submit>
+    <div class="field">
+      <label for="source">{{ t("web_source") }}</label>
+      <textarea id="source" name="source" rows="4" placeholder="BV1xxxxxxxxx" aria-describedby="source-hint">{{ values.source }}</textarea>
+      <small id="source-hint">{{ t("web_source_hint") }}</small>
+    </div>
+    <div class="file-field field">
+      <label for="media">{{ t("web_files") }}</label>
+      <input id="media" type="file" name="media" accept="{{ media_accept }}" multiple aria-describedby="file-hint">
+      <small id="file-hint">{{ t("web_files_hint") }}</small>
+    </div>
+    <div class="grid two">
+      <div class="field"><label for="provider">{{ t("web_provider") }}</label>
+        <select id="provider" name="provider">
+          {% for provider in ["whisper", "sensevoice", "volcengine"] %}
+          <option value="{{ provider }}" {% if values.provider == provider %}selected{% endif %}>{{ provider }}</option>
+          {% endfor %}
+        </select>
       </div>
-      <div class="space-y-3">
-        {% for video in videos %}
-        <a href="/videos/{{ video.id }}" class="block rounded-lg border border-gray-200 px-4 py-3 hover:border-indigo-300 hover:bg-indigo-50/40 transition">
-          <div class="flex items-center justify-between gap-4">
-            <div class="min-w-0">
-              <p class="font-medium truncate">{{ video.title }}</p>
-              <p class="text-sm text-gray-500">{{ video.engine }} · {{ video.model }}</p>
-            </div>
-            <div class="text-right text-sm text-gray-500">
-              {% if video.category_name %}
-              <div>{{ video.category_name }}</div>
-              {% endif %}
-              <div>{{ video.created_at }}</div>
-            </div>
-          </div>
-        </a>
-        {% else %}
-        <p class="text-sm text-gray-500">No videos indexed yet.</p>
-        {% endfor %}
+      <div class="field"><label for="model">{{ t("web_model") }}</label>
+        <input id="model" name="model" value="{{ values.model }}" required>
       </div>
-    </section>
-  </main>
-</body>
-</html>
+    </div>
+    <details><summary>{{ t("web_prompt") }}</summary>
+      <div class="field"><label class="sr-only" for="prompt">{{ t("web_prompt") }}</label>
+        <textarea id="prompt" name="prompt" rows="3" aria-describedby="prompt-hint">{{ values.prompt }}</textarea>
+        <small id="prompt-hint">{{ t("web_prompt_hint") }}</small>
+      </div>
+    </details>
+    <div><button type="submit">{{ t("web_submit") }}</button></div>
+  </form>
+</section>
+<section class="card" id="tasks">
+  <div class="section-heading"><h2>{{ t("web_tasks") }}</h2><span class="count">{{ tasks|length }}</span></div>
+  <div class="list">
+    {% for task in tasks %}
+    <a class="list-item" href="/tasks/{{ task.id }}">
+      <div class="item-main"><strong>{{ task.source_input }}</strong><small>{{ task.provider }} · {{ task.model }} · {{ task.created_at }}</small></div>
+      <span class="badge {{ task.status }}">{{ t("web_" + task.status) }}</span>
+    </a>
+    {% else %}<p class="empty">{{ t("web_no_tasks") }}</p>{% endfor %}
+  </div>
+</section>
+<section class="card" id="library">
+  <div class="section-heading"><h2>{{ t("web_library") }}</h2><span class="count">{{ videos|length }}</span></div>
+  <div class="list">
+    {% for video in videos %}
+    <a class="list-item" href="/videos/{{ video.id }}">
+      <div class="item-main"><strong>{{ video.title }}</strong><small>{{ video.engine }} · {{ video.model }} · {{ video.created_at }}</small></div>
+      {% if video.category_name %}<span class="badge">{{ video.category_name }}</span>{% endif %}
+    </a>
+    {% else %}<p class="empty">{{ t("web_no_videos") }}</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

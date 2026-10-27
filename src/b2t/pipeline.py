@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -179,6 +180,7 @@ class B2TPipeline:
                 ],
                 capture_output=True,
                 encoding="utf-8",
+                errors="replace",
             )
             if result.returncode != 0:
                 stderr = result.stderr.strip() or "unknown ffmpeg error"
@@ -209,29 +211,38 @@ class B2TPipeline:
             "-nostats",
             str(audio_path),
         ]
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            encoding="utf-8",
-        )
-        assert process.stdout is not None
-        for line in process.stdout:
-            parsed_seconds = _parse_ffmpeg_progress_seconds(line.strip())
-            if parsed_seconds is None or duration in (None, 0):
-                continue
-            progress.running(
-                "extracting_audio",
-                message="extracting_audio",
-                stage_progress=min(1.0, parsed_seconds / duration),
+        # ffmpeg can produce enough decoder warnings to fill a pipe while
+        # stdout is being read for progress. Spool diagnostics independently.
+        with tempfile.TemporaryFile() as diagnostics:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=diagnostics,
+                encoding="utf-8",
+                errors="replace",
             )
-        stderr_text = ""
-        if process.stderr is not None:
-            stderr_text = process.stderr.read()
-        returncode = process.wait()
-        if returncode != 0:
-            stderr = stderr_text.strip() or "unknown ffmpeg error"
-            raise RuntimeError(f"ffmpeg failed to extract audio: {stderr}")
+            assert process.stdout is not None
+            try:
+                with process.stdout:
+                    for line in process.stdout:
+                        parsed_seconds = _parse_ffmpeg_progress_seconds(line.strip())
+                        if parsed_seconds is None or duration in (None, 0):
+                            continue
+                        progress.running(
+                            "extracting_audio",
+                            message="extracting_audio",
+                            stage_progress=min(1.0, parsed_seconds / duration),
+                        )
+                returncode = process.wait()
+            except BaseException:
+                process.kill()
+                process.wait()
+                raise
+            if returncode != 0:
+                diagnostics.seek(0, 2)
+                diagnostics.seek(max(0, diagnostics.tell() - 16 * 1024))
+                stderr = diagnostics.read().decode("utf-8", errors="replace").strip() or "unknown ffmpeg error"
+                raise RuntimeError(f"ffmpeg failed to extract audio: {stderr}")
         return audio_path
 
     def _resolve_output_path(self, base_name: str, output: Path | None) -> Path:

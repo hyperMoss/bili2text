@@ -2,18 +2,23 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
+import secrets
+import shutil
+from uuid import uuid4
 
-from fastapi import FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from b2t.database import AppDatabase
 from b2t.i18n import tr
-from b2t.inputs import parse_source_list
+from b2t.inputs import AUDIO_SUFFIXES, VIDEO_SUFFIXES, parse_source_list
 from b2t.library import WorkspaceLibrary
 from b2t.models import TaskRecord
 from b2t.tasks import TaskService
+from b2t.user_config import DEFAULT_CHINESE_PROMPT
 
 
 class TranscribeTaskRequest(BaseModel):
@@ -52,10 +57,21 @@ def create_app(
     database: AppDatabase,
     default_provider: str = "whisper",
     default_model: str = "small",
+    default_prompt: str = DEFAULT_CHINESE_PROMPT,
     language: str = "zh-CN",
+    local_actions: bool = False,
 ) -> FastAPI:
-    templates = Jinja2Templates(directory=str(Path(__file__).with_name("templates")))
+    action_token = secrets.token_urlsafe(32) if local_actions else ""
+    templates = Jinja2Templates(
+        directory=str(Path(__file__).with_name("templates")),
+        context_processors=[lambda request: {
+            "workspace": str(library.settings.workspace_root.expanduser().resolve()),
+            "action_token": action_token,
+            "media_accept": ",".join(sorted(AUDIO_SUFFIXES | VIDEO_SUFFIXES)),
+        }],
+    )
     app = FastAPI(title="bili2text")
+    app.mount("/static", StaticFiles(directory=str(Path(__file__).with_name("static"))), name="static")
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
@@ -68,9 +84,10 @@ def create_app(
                     "source": "",
                     "provider": default_provider,
                     "model": default_model,
-                    "prompt": "",
+                    "prompt": default_prompt,
                 },
                 "videos": database.list_videos(),
+                "tasks": task_service.list_tasks()[:10],
                 "lang": language,
                 "t": lambda key, **kwargs: tr(language, key, **kwargs),
             },
@@ -79,14 +96,36 @@ def create_app(
     @app.post("/transcribe", response_class=HTMLResponse)
     async def transcribe_from_form(
         request: Request,
-        source: str = Form(...),
+        source: str = Form(""),
         provider: str = Form("whisper"),
         model: str = Form("small"),
         prompt: str = Form(""),
-    ) -> HTMLResponse:
+        media: list[UploadFile] = File(default=[]),
+    ) -> Response:
+        import_dir = None
         try:
-            sources = parse_source_list(source)
+            sources = parse_source_list(source) if source.strip() else []
+            selected_files = [upload for upload in media if upload.filename]
+            for upload in selected_files:
+                if Path(upload.filename).suffix.lower() not in AUDIO_SUFFIXES | VIDEO_SUFFIXES:
+                    raise ValueError(tr(language, "web_unsupported_file", name=upload.filename))
+            if selected_files:
+                import_dir = library.settings.downloads_dir / "imports" / uuid4().hex
+                import_dir.mkdir(parents=True)
+                for index, upload in enumerate(selected_files):
+                    name = Path(upload.filename.replace("\\", "/")).name
+                    destination = import_dir / f"{index}-{name}"
+                    with destination.open("wb") as output:
+                        while chunk := await upload.read(1024 * 1024):
+                            output.write(chunk)
+                    if destination.stat().st_size == 0:
+                        raise ValueError(tr(language, "web_empty_file", name=name))
+                    sources.append(str(destination.resolve()))
+            if not sources:
+                raise ValueError(tr(language, "window_missing_source"))
         except ValueError as exc:
+            if import_dir is not None:
+                shutil.rmtree(import_dir)
             return templates.TemplateResponse(
                 request,
                 "index.html",
@@ -99,11 +138,19 @@ def create_app(
                         "prompt": prompt,
                     },
                     "videos": database.list_videos(),
+                    "tasks": task_service.list_tasks()[:10],
                     "lang": language,
                     "t": lambda key, **kwargs: tr(language, key, **kwargs),
                 },
                 status_code=400,
             )
+        except BaseException:
+            if import_dir is not None:
+                shutil.rmtree(import_dir)
+            raise
+        finally:
+            for upload in media:
+                await upload.close()
 
         tasks = _submit_transcription_tasks(
             task_service,
@@ -113,33 +160,23 @@ def create_app(
             prompt=prompt,
         )
         if len(tasks) > 1:
-            return templates.TemplateResponse(
-                request,
-                "batch.html",
-                {
-                    "tasks": [asdict(task) for task in tasks],
-                    "lang": language,
-                    "t": lambda key, **kwargs: tr(language, key, **kwargs),
-                },
-            )
+            return RedirectResponse("/tasks/batch?ids=" + ",".join(task.id for task in tasks), status_code=303)
+        return RedirectResponse(f"/tasks/{tasks[0].id}", status_code=303)
 
-        task = tasks[0]
-        return templates.TemplateResponse(
-            request,
-            "task.html",
-            {
-                "task_id": task.id,
-                "lang": language,
-                "t": lambda key, **kwargs: tr(language, key, **kwargs),
-            },
-        )
+    @app.post("/api/workspace/open")
+    async def open_workspace(request: Request) -> JSONResponse:
+        if not local_actions or not secrets.compare_digest(request.headers.get("X-B2T-Token", ""), action_token):
+            raise HTTPException(status_code=403, detail="local action unavailable")
+        from b2t.window_app import open_path
+        open_path(library.settings.workspace_root)
+        return JSONResponse({"status": "ok"})
 
     @app.get("/tasks/batch", response_class=HTMLResponse)
     async def batch_task_page(request: Request, ids: str = Query("")) -> HTMLResponse:
         task_ids = [task_id.strip() for task_id in ids.split(",") if task_id.strip()]
         tasks = []
         for task_id in task_ids:
-            task = database.get_task(task_id)
+            task = task_service.get_task(task_id)
             if task is not None:
                 tasks.append(asdict(task))
         return templates.TemplateResponse(
@@ -147,6 +184,7 @@ def create_app(
             "batch.html",
             {
                 "tasks": tasks,
+                "completed_count": sum(task["status"] in {"completed", "failed", "cancelled"} for task in tasks),
                 "lang": language,
                 "t": lambda key, **kwargs: tr(language, key, **kwargs),
             },
@@ -154,7 +192,7 @@ def create_app(
 
     @app.get("/tasks/{task_id}", response_class=HTMLResponse)
     async def task_page(request: Request, task_id: str) -> HTMLResponse:
-        task = database.get_task(task_id)
+        task = task_service.get_task(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail="task not found")
         return templates.TemplateResponse(
@@ -193,6 +231,23 @@ def create_app(
     async def edit_video_transcript(video_id: int, text: str = Form(...)) -> RedirectResponse:
         library.save_edited_transcript(video_id, text)
         return RedirectResponse(url=f"/videos/{video_id}", status_code=303)
+
+    @app.get("/videos/{video_id}/export")
+    async def export_transcript(video_id: int) -> Response:
+        if database.get_video(video_id) is None:
+            raise HTTPException(status_code=404, detail="video not found")
+        transcript = library.load_active_transcript(video_id)
+        return Response(
+            content=str(transcript["text"]), media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="transcript-{video_id}.txt"'},
+        )
+
+    @app.post("/videos/{video_id}/versions/{version_id}/activate")
+    async def activate_version_form(video_id: int, version_id: int) -> RedirectResponse:
+        if database.get_transcript_version(video_id, version_id) is None:
+            raise HTTPException(status_code=404, detail="version not found")
+        database.activate_transcript_version(video_id, version_id)
+        return RedirectResponse(f"/videos/{video_id}", status_code=303)
 
     @app.post("/videos/{video_id}/category")
     async def assign_video_category(video_id: int, category_name: str = Form("")) -> RedirectResponse:

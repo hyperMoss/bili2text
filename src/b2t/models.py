@@ -81,6 +81,7 @@ class TaskRecord:
     created_at: str = ""
     started_at: str | None = None
     finished_at: str | None = None
+    runner_pid: int | None = None
 
 
 @dataclass(slots=True)
