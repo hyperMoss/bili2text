@@ -9,6 +9,7 @@ import typer
 
 from b2t import __version__
 from b2t.bootstrap import ensure_bootstrap, run_bootstrap
+from b2t.cleanup import clear_downloads, format_bytes, plan_download_cleanup
 from b2t.cli_progress import TqdmTaskRenderer
 from b2t.config import Settings
 from b2t.database import AppDatabase
@@ -334,6 +335,35 @@ def create_app(language: str = DEFAULT_LANGUAGE) -> typer.Typer:
             raise typer.Exit(code=1) from error
         if failed:
             raise typer.Exit(code=1)
+
+    @app.command("clean-downloads", help=tr(language, "cmd_clean_downloads_help"))
+    def clean_downloads(
+        yes: bool = typer.Option(False, "--yes", help=tr(language, "opt_clean_downloads_yes_help")),
+        workspace: Path | None = typer.Option(None, "--workspace", help=tr(language, "opt_workspace_help")),
+    ) -> None:
+        """Preview or clear downloaded media while preserving transcripts and metadata."""
+        selected_language = _detect_preferred_language(workspace)
+        settings = Settings.from_workspace(workspace)
+        if settings.app_db_path.is_file():
+            database = AppDatabase(settings)
+            database.reconcile_interrupted_tasks()
+            active_tasks = [task for task in database.list_tasks() if task.status in {"queued", "running"}]
+            if active_tasks:
+                typer.secho(
+                    tr(selected_language, "clean_downloads_active_tasks", count=len(active_tasks)),
+                    err=True,
+                    fg=typer.colors.RED,
+                )
+                raise typer.Exit(code=1)
+
+        plan = plan_download_cleanup(settings.downloads_dir)
+        typer.echo(tr(selected_language, "clean_downloads_plan", count=plan.file_count, size=format_bytes(plan.total_bytes)))
+        if not yes:
+            typer.echo(tr(selected_language, "clean_downloads_preview"))
+            return
+
+        removed = clear_downloads(plan)
+        typer.echo(tr(selected_language, "clean_downloads_done", count=removed))
 
     @app.command("audit")
     def audit(workspace: Path | None = typer.Option(None, "--workspace")) -> None:

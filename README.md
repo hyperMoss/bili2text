@@ -164,6 +164,22 @@ uv run bili2text download --file sources.txt --workspace .b2t
 
 下载文件保存在 `.b2t/downloads/`。`download` 的缩写是 `dl`。
 
+### 清理已下载的媒体
+
+先预览会删除的文件数量和总大小：
+
+```bash
+uv run bili2text clean-downloads --workspace .b2t
+```
+
+确认后清空 `.b2t/downloads/` 的全部文件和子目录：
+
+```bash
+uv run bili2text clean-downloads --yes --workspace .b2t
+```
+
+命令保留下载目录本身，不删除文字稿、元数据、音频或数据库。有任务仍在运行或排队时，命令会拒绝清理。
+
 ### 从历史任务下载并转写
 
 从历史任务逐条获取字幕，确认无字幕时续传下载并转写：
@@ -210,6 +226,7 @@ Whisper 会优先按句末标点换行，并合并跨时间段的未完句。没
 | `bili2text transcribe` | `tx` | 转写视频或音频 |
 | `bili2text batch` | - | 批量转写多条输入 |
 | `bili2text download` | `dl` | 下载视频、跳过完整文件并断点续传 |
+| `bili2text clean-downloads` | - | 预览或清理下载目录，需用 `--yes` 确认 |
 | `bili2text audit` | - | 只读核验工作目录的文字稿、metadata 和数据库索引 |
 | `bili2text login` | - | 扫码登录 B 站，`--status` 检查登录状态 |
 | `bili2text bootstrap` | `init` | 配置向导 |
